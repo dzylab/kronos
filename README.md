@@ -1,3 +1,5 @@
+<img width="1672" height="941" alt="KRONOS" src="https://github.com/user-attachments/assets/3246641b-3815-491a-af79-c8fd602da5a3" />
+
 # KRONOS Workflow Engine
 
 > A workflow orchestration and verification engine for AI-assisted software development —
