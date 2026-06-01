@@ -1,0 +1,26 @@
+# KRONOS Workflow Engine — configuration example
+# Copy to config.yaml and fill in. install.sh reads this file and exports
+# the values as environment variables for the hook.
+#
+# All paths support ~ (home) and $VAR expansion.
+
+# Root of your main project (the repo that contains WORKFLOW.md).
+# Leave empty to use the hook's current working directory.
+KRONOS_ROOT: ""
+
+# Main project path. Usually the same as the directory where you run git.
+# Leave empty to auto-detect (cwd of the hook).
+PROJECT_PATH: ""
+
+# Documentation vault — a SEPARATE git repo with your notes / docs / wiki.
+# The DOCS stage verifies that `git status` here shows changes.
+# Examples: "~/notes", "~/projects/myapp-docs", "/path/to/obsidian-vault"
+VAULT_PATH: ""
+
+# Extra repositories to check for `git diff` during the CODE stage
+# (e.g. git submodules, separate modules). Comma-separated. Optional.
+# Example: "~/projects/myapp/frontend, ~/projects/myapp/backend"
+KRONOS_REPOS: ""
+
+# Timezone offset (hours) for timestamps in the Decisions log (BYPASS records).
+# KRONOS_LOG_TZ_OFFSET: 0  # UTC by default; set to your local offset (e.g. 7 for UTC+7)
