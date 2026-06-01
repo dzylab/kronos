@@ -192,6 +192,26 @@ All via environment variables (see `config.example.yaml`). Paths support `~` and
 | `KRONOS_BYPASS` | `1` to bypass the gate (recorded in Decisions log) | unset |
 
 ---
+## The documentation vault (optional)
+
+KRONOS's DOCS stage keeps your project docs in sync with the code. The "vault" is simply a **separate git repository of Markdown files** — your notes, wiki, or developer docs. It is **optional**: if you don't set one up, KRONOS still runs; the DOCS stage just isn't gated.
+
+You don't need any special app — the vault is just a folder of `.md` files under git. Edit it with whatever you like:
+
+- a plain `docs/` folder of Markdown,
+- [Obsidian](https://obsidian.md), [Logseq](https://logseq.com), or any Markdown editor,
+- an existing wiki repo.
+
+**Set it up:**
+
+​```bash
+mkdir my-project-docs && cd my-project-docs
+git init
+# add your .md notes, then point KRONOS at it:
+export VAULT_PATH="/path/to/my-project-docs"   # or set it in config.yaml
+​```
+
+KRONOS only needs the path (`VAULT_PATH`) and that the folder is a git repo — at the DOCS stage it runs `git status` there to confirm the docs actually changed.
 
 ## Documentation routing
 
