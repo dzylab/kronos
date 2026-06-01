@@ -1,0 +1,20 @@
+cff-version: 1.2.0
+title: "KRONOS Workflow Engine"
+message: "If you use this software, please cite it using the metadata below."
+type: software
+authors:
+  - name: "dzylab"
+    website: "https://github.com/dzylab"
+repository-code: "https://github.com/dzylab/kronos"
+url: "https://github.com/dzylab/kronos"
+abstract: "A workflow orchestration and verification engine for AI-assisted software development. Every task runs through PLAN, CODE, TEST, DOCS, COMMIT, and a commit-time hook verifies the real artifacts, not the checkboxes."
+keywords:
+  - claude-code
+  - workflow
+  - ai-agents
+  - git-hooks
+  - developer-tools
+  - automation
+license: GPL-3.0
+version: "1.0.0"
+date-released: "2026-06-01"
