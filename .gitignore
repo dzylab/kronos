@@ -1,0 +1,24 @@
+# Local active workflow state — never committed
+WORKFLOW.md
+
+# Per-project plans and archive — generated, project-specific
+plans/
+workflow-archive/
+
+# Local config (copy from config.example.yaml)
+config.yaml
+
+# Local routing table (copy from KRONOS-ROUTING.example.md)
+KRONOS-ROUTING.md
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
