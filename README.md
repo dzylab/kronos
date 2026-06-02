@@ -1,5 +1,3 @@
-<img width="1672" height="941" alt="KRONOS" src="https://github.com/user-attachments/assets/3246641b-3815-491a-af79-c8fd602da5a3" />
-
 # KRONOS Workflow Engine
 
 > A workflow orchestration and verification engine for AI-assisted software development —
@@ -8,6 +6,8 @@
 > *facts*, not the checkboxes.
 
 > **Every task starts with a plan. Every plan must be executed. Every completed stage must be verified.**
+
+**Version 1.0.1** — see [Releases](https://github.com/dzylab/kronos/releases) for the changelog.
 
 KRONOS is a lightweight workflow engine built on top of [Claude Code](https://claude.com/claude-code)
 hooks and slash-commands. It exists to solve one problem: **AI agents (and humans) mark
@@ -153,10 +153,10 @@ $EDITOR config.yaml          # set PROJECT_PATH and VAULT_PATH
 python ~/.claude/hooks/check-workflow.py --self-test
 ```
 
-The self-test spins up throwaway git repos and runs ~24 cases (blocked commits, bypass,
+The self-test spins up throwaway git repos and runs ~25 cases (blocked commits, bypass,
 fake checkboxes, skipped-with-reason, watchdog heartbeat hard-gate — a `[x]` stage without a
 `STARTED` trace blocks the commit, PLAN-stage exemption, legacy/template-state pass,
-real-task-with-angle-brackets, etc.). All should pass.
+real-task-with-angle-brackets, PROJECT_PATH override, etc.). All should pass.
 
 ### settings.json hook registration
 
@@ -186,32 +186,13 @@ All via environment variables (see `config.example.yaml`). Paths support `~` and
 
 | Variable | Purpose | Default |
 |----------|---------|---------|
-| `PROJECT_PATH` | Root of the main project (repo with `WORKFLOW.md`) | hook's cwd |
+| `PROJECT_PATH` | Project root override (repo with `WORKFLOW.md`); set only for a monorepo or when git runs from a subdirectory | hook's cwd |
 | `VAULT_PATH` | Separate git repo for docs / notes / wiki | sibling `vault`/`docs`/`wiki` |
 | `KRONOS_REPOS` | Extra repos to check for diff (submodules), comma-separated | empty |
 | `KRONOS_BYPASS` | `1` to bypass the gate (recorded in Decisions log) | unset |
+| `KRONOS_LOG_TZ_OFFSET` | Timezone offset (hours) for Decisions-log timestamps | `0` (UTC) |
 
 ---
-## The documentation vault (optional)
-
-KRONOS's DOCS stage keeps your project docs in sync with the code. The "vault" is simply a **separate git repository of Markdown files** — your notes, wiki, or developer docs. It is **optional**: if you don't set one up, KRONOS still runs; the DOCS stage just isn't gated.
-
-You don't need any special app — the vault is just a folder of `.md` files under git. Edit it with whatever you like:
-
-- a plain `docs/` folder of Markdown,
-- [Obsidian](https://obsidian.md), [Logseq](https://logseq.com), or any Markdown editor,
-- an existing wiki repo.
-
-**Set it up:**
-
-​```bash
-mkdir my-project-docs && cd my-project-docs
-git init
-# add your .md notes, then point KRONOS at it:
-export VAULT_PATH="/path/to/my-project-docs"   # or set it in config.yaml
-​```
-
-KRONOS only needs the path (`VAULT_PATH`) and that the folder is a git repo — at the DOCS stage it runs `git status` there to confirm the docs actually changed.
 
 ## Documentation routing
 

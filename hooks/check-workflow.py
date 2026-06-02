@@ -429,7 +429,11 @@ STAGES_OPTIONAL_BEFORE_COMMIT = {"COMMIT"}
 
 
 def run_hook(payload: dict) -> int:
-    cwd = Path(payload.get("cwd", os.getcwd()))
+    # PROJECT_PATH (optional) overrides the project root; otherwise use the payload cwd.
+    # Supports ~ and $VAR. Lets you point the hook at a specific project (monorepo, or git
+    # invoked from a subdirectory) instead of relying on the command's working directory.
+    _pp = os.environ.get("PROJECT_PATH", "").strip()
+    cwd = _expand(_pp) if _pp else Path(payload.get("cwd", os.getcwd()))
     tool_input = payload.get("tool_input", {}) or {}
     command = tool_input.get("command", "") or ""
 
@@ -533,7 +537,7 @@ def self_test() -> int:
     tmpdir = tempfile.mkdtemp(prefix="kronos_selftest_")
     vault_dir = tempfile.mkdtemp(prefix="kronos_vault_")
     # Hermetic: drop real paths from env so the test does not touch the real vault/submodule.
-    _saved_env = {k: os.environ.pop(k, None) for k in ("VAULT_PATH", "KRONOS_REPOS")}
+    _saved_env = {k: os.environ.pop(k, None) for k in ("VAULT_PATH", "KRONOS_REPOS", "PROJECT_PATH")}
     try:
         cwd = Path(tmpdir)
         vault = Path(vault_dir)
@@ -920,6 +924,27 @@ def self_test() -> int:
 
         # restore
         verify_docs = original_verify_docs
+
+        # 22. PROJECT_PATH override: the hook resolves the project root from PROJECT_PATH,
+        #     NOT from the payload cwd. proj2 has an all-open WORKFLOW.md (would block);
+        #     the payload cwd points to a dir with NO WORKFLOW.md (would pass). If the override
+        #     is honored, the commit is BLOCKED (exit 2) — proving PROJECT_PATH wins over cwd.
+        proj2 = Path(tempfile.mkdtemp(prefix="kronos_proj2_"))
+        nowf = Path(tempfile.mkdtemp(prefix="kronos_nowf_"))
+        subprocess.run(["git", "init", "-q"], cwd=proj2, check=True)
+        (proj2 / "WORKFLOW.md").write_text(
+            "**Task:** real task\n**Slug:** pp-slug\n**Type:** MEDIUM\n\n"
+            "- [ ] 1. **PLAN** → x\n- [ ] 2. **CODE** → x\n- [ ] 3. **TEST** → x\n"
+            "- [ ] 4. **DOCS** → x\n- [ ] 5. **COMMIT** → x\n\n"
+            "## Test log\n## Docs updated\n## Activity log\n## Decisions log\n",
+            encoding="utf-8",
+        )
+        run_case("PROJECT_PATH overrides cwd → verifies that project → blocks", 2,
+                 {"cwd": str(nowf), "tool_name": "Bash",
+                  "tool_input": {"command": "git commit -m pp"}},
+                 env_extra={"PROJECT_PATH": str(proj2)})
+        shutil.rmtree(proj2, ignore_errors=True)
+        shutil.rmtree(nowf, ignore_errors=True)
 
         print(f"\n=== Self-test results: {passed} passed, {failed} failed ===")
         return 0 if failed == 0 else 1

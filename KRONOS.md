@@ -1,6 +1,6 @@
 # KRONOS Workflow Engine
 
-**Version:** 1.0 (public, 5 stages)
+**Version:** 1.0.1 (public, 5 stages)
 **Purpose:** force every code/documentation change through PLAN → CODE → TEST → DOCS → COMMIT with independent verification, auto-classification, and parallelization.
 
 KRONOS is a git pre-commit guard built on a Claude Code hook (PreToolUse). It does not trust the checkboxes in `WORKFLOW.md` — for every `[x]` stage it independently re-checks the fact (the plan file exists and is large enough, there is a git diff, the test log is non-empty, the documentation really changed, a commit hash is recorded). You cannot fake your way through.
@@ -15,7 +15,7 @@ KRONOS is configured through environment variables. See `config.example.yaml` an
 
 | Variable | Purpose | Default |
 |---|---|---|
-| `PROJECT_PATH` | Root of the main project (the code repository) | the hook's cwd |
+| `PROJECT_PATH` | Project root override (repo with `WORKFLOW.md`); set only for a monorepo or when git runs from a subdirectory — otherwise the hook uses its cwd | the hook's cwd |
 | `VAULT_PATH` | Documentation directory (Obsidian vault / docs / wiki — a separate git repo) | a sibling `vault`/`docs`/`wiki` folder |
 | `KRONOS_REPOS` | Extra repositories to check for a diff (submodules etc.), comma-separated | empty |
 | `KRONOS_BYPASS` | `1` to bypass the gate (recorded in the Decisions log) | unset |
