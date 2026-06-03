@@ -50,7 +50,11 @@ Check: `plans/<slug>.md` exists and `wc -l >= 50`.
 - Then — **ask the user to sign off on the plan** before `[x]`
 
 #### Stage 2: CODE
-**First — dispatch via `/kronos-route`** (the orchestration layer: domain -> agent -> model):
+**Step 0 (if Type != TRIVIAL) — `/kronos-code-standards`:** loads the code canon (Clean Code + style
+guides + your project rules), writes a STANDARDS block to the Activity log. The code agents (route §7)
+receive it in their instructions. No STANDARDS.md → built-in defaults (does not fail). Guidance only — no block.
+
+**Then — dispatch via `/kronos-route`** (the orchestration layer: domain -> agent -> model):
 - **TRIVIAL:** the router is skipped → the main loop makes the edits itself (Edit/Write sequentially).
 - **MEDIUM/LARGE:** invoke `/kronos-route`. It reads the plan ("Affected files"), maps domains to
   specialist agents with model tiers (backend->`backend-agent`, frontend->`frontend-agent`, etc.),
@@ -77,8 +81,9 @@ Paste the output of each check **into the '## Test log' section** of WORKFLOW.md
 `[x]` when the Test log section is filled. Activity log entry: "TEST done: N checks, all PASS".
 
 #### Stage 4: DOCS
-The trickiest stage — 3 routing mechanisms:
+The trickiest stage — 4 routing mechanisms:
 
+0. **`/kronos-doc-standards`** (if Type != TRIVIAL) — loads the doc canon (Diataxis + density + frontmatter), classifies the target files by type, writes a DOC-STANDARDS block to the Activity log. The parallel doc agents (step 2) receive it. Guidance only — no block.
 1. **`/kronos-find-docs`** — Routing Table lookup + Discovery Agent (Grep). Returns the list of documentation files to update.
 2. **Parallel agents** — one per file, each updating a single file (Edit operations, not Write).
 3. **`/kronos-sanity-check`** — compares the project diff vs the vault diff. If PUBLIC changes (new endpoints/models/pages) are not reflected — it flags them and DOCS returns to `⏳`.

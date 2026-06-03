@@ -9,7 +9,7 @@
 
 > **Every task starts with a plan. Every plan must be executed. Every completed stage must be verified.**
 
-**Version 1.0.1** — see [Releases](https://github.com/dzylab/kronos/releases) for the changelog.
+**Version 1.1.0** — see [Releases](https://github.com/dzylab/kronos/releases) for the changelog · [What's new in v1.1 ↓](#whats-new-in-v11)
 
 KRONOS is a lightweight workflow engine built on top of [Claude Code](https://claude.com/claude-code)
 hooks and slash-commands. It exists to solve one problem: **AI agents (and humans) mark
@@ -29,6 +29,47 @@ KRONOS makes that impossible. When you try to `git commit`, a `PreToolUse` hook 
 
 Lie about any of them and the hook returns `exit 2` — the commit is blocked with a
 clear message. You can't fake your way past it.
+
+---
+
+## What's new in v1.1
+
+v1.1 grows KRONOS from "one feature, five stages" into something that fits **real pipelines** —
+multi-commit releases, quick increments, and a quality bar — without loosening the gate.
+
+### 🚦 Two new task types
+- **OPS** — multi-commit deploy/release pipelines. Instead of 5 stages, a single
+  `## OPS Checklist` of sub-steps (`test → drift → stage → merge → deploy → smoke`). Each
+  commit closes one sub-step, and a `[x]` sub-step **without a trace** (a commit hash /
+  `PASSED` / `done`) is blocked. The discipline of "verify each step, commit each step" — enforced.
+- **MICRO** — lightweight tracked increments. A **1-line plan** + `TEST` + `COMMIT`, so quick
+  work on a feature branch still flows through the gate without writing a 50-line plan.
+
+### 🛡️ Three sharper gates
+- **Correctness TEST-gate** — `TEST[x]` now demands a *real green run*. It blocks if the Test
+  log shows `N failed` / `FAILED` / `Traceback`, **or** has no success marker (`N passed` /
+  `PASSED` / `ALL CHECKS PASSED` / `OK`). It catches **bugs**, not just "5 lines of output."
+  Markers are configurable (`KRONOS_TEST_PASS_MARKERS` / `KRONOS_TEST_FAIL_MARKERS`).
+- **Branch-gate** — real code committed on a **non-default branch with no active workflow** is
+  blocked (default-ON; `KRONOS_BRANCH_GATE=0` disables), so feature-branch work can't slip past.
+- **Bypass audit** — the hook **counts** bypasses per workflow and warns past a threshold
+  (`KRONOS_BYPASS_WARN`, default 2): *"bypassing often → this is probably an OPS or MICRO task."*
+
+### 🎯 Standards layer — quality, not just completion
+Two **guidance** skills steer *how* the work is done, *before* it's done:
+- **`/kronos-code-standards`** (before CODE) — loads the **Clean Code** canon + per-language
+  style guides + your project rules, and hands each dispatched code agent a `STANDARDS` block.
+- **`/kronos-doc-standards`** (before DOCS) — loads the **[Diátaxis](https://diataxis.fr/)** canon
+  (tutorial / how-to / reference / explanation) + density + frontmatter rules, classifies each
+  target doc by type, and hands the doc agents a `DOC` block.
+
+A per-project or global **`STANDARDS.md`** (copy from `STANDARDS.example.md`) is the single
+source — `env → repo → global → built-in defaults`; the skills **self-skip** when it's absent
+(fully backward-compatible). This layer is **guidance only**: the hook stays artifact-based,
+because subjective quality is not machine-verifiable (see [THREAT_MODEL.md](THREAT_MODEL.md)).
+
+> **Backward-compatible & dual-shell.** Existing workflows keep working unchanged; the self-test
+> grew from ~25 to ~34 cases; nothing new blocks a project that doesn't opt in.
 
 ---
 
@@ -89,6 +130,9 @@ It also adds:
   discipline/quality gate against an *honest-but-optimistic* agent, **not** a security
   boundary against a hostile one. The doc spells out exactly what it does and does not
   defend against (it checks that work *happened*, not that it is *correct*).
+- **v1.1 additions** — two new task types (`OPS` multi-commit pipelines, `MICRO` increments),
+  three sharper gates (correctness TEST, branch-gate, bypass audit), and a **standards layer**
+  for code/doc quality. See [What's new in v1.1 ↑](#whats-new-in-v11).
 
 ---
 
@@ -116,8 +160,10 @@ accepts it, but requires a matching `SKIPPED stage N` line in the Decisions log.
 | Type | Trigger | Stages | Parallel sub-agents |
 |------|---------|--------|---------------------|
 | **TRIVIAL** | 1 file, ≤10 lines, not a critical path | 3 (PLAN + TEST skipped) | 0 |
+| **MICRO** | a quick test increment that still needs tracking | PLAN(1-line) + TEST + COMMIT | 0 |
 | **MEDIUM** | 1 module, 2–3 files (default) | 5 | 2 |
 | **LARGE** | 3+ modules / migration + UI | 5 | up to 5 |
+| **OPS** | deploy/release pipeline with N commits | `## OPS Checklist` of sub-steps (multi-commit) | serial |
 
 ---
 
@@ -133,6 +179,9 @@ accepts it, but requires a matching `SKIPPED stage N` line in the Decisions log.
 | `/kronos-find-docs` | Routing table + grep discovery → list of docs to update. |
 | `/kronos-sanity-check` | Before COMMIT: are all public changes (endpoints, models, pages) documented? |
 | `/kronos-watchdog` | Cross-cutting stuck-task detector: probes progress of an active long-running stage (see below). |
+| `/kronos-verify` | Runs the test oracle + pytest, summarizes, and fills the `## Test log` with a green/red artifact for the correctness TEST-gate. |
+| `/kronos-code-standards` | Before CODE: loads Clean Code + style guides + project rules, writes a STANDARDS block for the code agents. Guidance only. |
+| `/kronos-doc-standards` | Before DOCS: loads Diataxis + density + frontmatter, classifies docs by type, writes a DOC block for the doc agents. Guidance only. |
 
 ---
 
@@ -155,9 +204,10 @@ $EDITOR config.yaml          # set PROJECT_PATH and VAULT_PATH
 python ~/.claude/hooks/check-workflow.py --self-test
 ```
 
-The self-test spins up throwaway git repos and runs ~25 cases (blocked commits, bypass,
+The self-test spins up throwaway git repos and runs ~34 cases (blocked commits, bypass,
 fake checkboxes, skipped-with-reason, watchdog heartbeat hard-gate — a `[x]` stage without a
 `STARTED` trace blocks the commit, PLAN-stage exemption, legacy/template-state pass,
+OPS multi-commit, MICRO 1-line plan, branch-gate, correctness TEST-gate, bypass-audit,
 real-task-with-angle-brackets, PROJECT_PATH override, etc.). All should pass.
 
 ### settings.json hook registration
@@ -222,6 +272,17 @@ KRONOS works with 1–N local git repos:
 CODE is considered done if **any** of them has a diff. All git stays local; deploy to
 servers via scp/rsync/CI, never `git commit` on prod.
 
+### Running parallel workflows
+
+There is **one `WORKFLOW.md` per working directory**. To work on several tasks at once, give each
+its own working copy with `git worktree` — each worktree gets its own (git-ignored) `WORKFLOW.md`,
+its own branch, and an independent slot:
+
+```bash
+git worktree add ../proj-featureB featureB && cd ../proj-featureB
+/kronos-start "task B"        # independent slot; the main worktree is untouched
+```
+
 ---
 
 ## Files in this repo
@@ -235,6 +296,7 @@ kronos/
 ├── KRONOS-ROUTING.example.md     # template for your code→docs map
 ├── WORKFLOW.template.md          # the 5-stage workflow template
 ├── config.example.yaml           # configuration template
+├── STANDARDS.example.md          # code (Clean Code) & doc (Diataxis) canons
 ├── install.sh                    # installer → ~/.claude/
 ├── hooks/
 │   ├── check-workflow.py         # the verification logic (+ --self-test)
@@ -247,7 +309,10 @@ kronos/
     ├── kronos-skip/SKILL.md
     ├── kronos-find-docs/SKILL.md
     ├── kronos-sanity-check/SKILL.md
-    └── kronos-watchdog/SKILL.md
+    ├── kronos-verify/SKILL.md
+    ├── kronos-watchdog/SKILL.md
+    ├── kronos-code-standards/SKILL.md
+    └── kronos-doc-standards/SKILL.md
 ```
 
 ---

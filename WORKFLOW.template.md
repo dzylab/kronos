@@ -3,7 +3,11 @@
 **Task:** <task name>
 **Started:**
 **Slug:** <slug>
-**Type:** <!-- TRIVIAL / MEDIUM / LARGE -->
+**Type:** <!-- TRIVIAL / MICRO / MEDIUM / LARGE / OPS -->
+<!-- MICRO = lightweight increment (PLAN 1 line + TEST + COMMIT; verify_plan drops the 50-line floor).
+     OPS = multi-commit pipeline: instead of the 5 stages, a "## OPS Checklist" of sub-steps
+     (test→drift→stage→merge→deploy→smoke), each closed by its own commit;
+     an [x] sub-step without a trace (hash/PASSED/done) → BLOCK. -->
 
 ## Stages (5 stages)
 

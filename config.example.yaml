@@ -22,3 +22,10 @@ KRONOS_REPOS: ""
 
 # Timezone offset (hours) for timestamps in the Decisions log (BYPASS records).
 # KRONOS_LOG_TZ_OFFSET: 0  # UTC by default; set to your local offset (e.g. 7 for UTC+7)
+
+# Standards layer (optional) — read by /kronos-code-standards and /kronos-doc-standards.
+# Override order: KRONOS_STANDARDS_PATH -> <project>/STANDARDS.md -> ~/.claude/STANDARDS.md -> built-in.
+# Copy STANDARDS.example.md to STANDARDS.md and edit; leave this empty to use the lookup chain.
+# KRONOS_STANDARDS_PATH: ""
+# Optional linter the code-standards skill may run (advisory; not a gate in this version).
+# KRONOS_LINT_CMD: ""   # e.g. "ruff check . && eslint ."

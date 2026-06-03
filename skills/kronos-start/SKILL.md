@@ -59,6 +59,16 @@ Determine Type from the plan + context:
 - 1 module (backend only, or frontend only, or docs only)
 - 2-3 files touched
 
+**MICRO** (PLAN 1-line + TEST + COMMIT):
+- A quick test increment that still needs tracking, where a 50-line plan is overkill
+- `verify_plan` accepts a 1-line plan for MICRO; TEST is required (correctness gate)
+- Pairs with the branch-gate so quick feature-branch commits don't slip past the gate
+
+**OPS** (multi-commit pipeline — deploy / release):
+- Many intermediate commits (test→drift→stage→merge→deploy→smoke)
+- Use an `## OPS Checklist` of sub-steps instead of the 5 stages; each commit closes one
+  sub-step (no bypass). An `[x]` sub-step must carry a trace (hash/PASSED/done).
+
 ### 5. Fill WORKFLOW.md
 
 Copy from `WORKFLOW.template.md` and fill in the header:

@@ -16,15 +16,17 @@ Shows the current state of the active KRONOS workflow.
 ```
 🎯 Workflow: <Task>
    Slug:  <date>-<slug>
-   Type:  TRIVIAL | MEDIUM | LARGE
+   Type:  TRIVIAL | MICRO | MEDIUM | LARGE | OPS
    Started: <ts>
 
-Stages:
+Stages:                         (for OPS: show the ## OPS Checklist sub-steps instead)
   1. PLAN    ✅ done   plans/<slug>.md (62 lines)
   2. CODE    ⏳ in progress   N files staged
   3. TEST    ⬜ pending
   4. DOCS    ⬜ pending
   5. COMMIT  ⬜ pending
+
+Bypasses:  N used  (warns above KRONOS_BYPASS_WARN, default 2)
 
 Latest activity:
   - <ts> CODE: 3 files changed
@@ -33,6 +35,10 @@ Latest activity:
 
 Next step: /kronos-next  (CODE → TEST transition)
 ```
+
+The **Bypasses** count = number of `**BYPASS used**` entries in the Decisions log. A count
+above `KRONOS_BYPASS_WARN` (default 2) means the task is likely the wrong Type — consider
+`OPS` (multi-commit pipeline) or `MICRO` (lightweight increment).
 
 ## Color markers (for parsing the checkbox)
 

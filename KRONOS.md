@@ -1,6 +1,6 @@
 # KRONOS Workflow Engine
 
-**Version:** 1.0.1 (public, 5 stages)
+**Version:** 1.1.0 (public, 5 stages + OPS/MICRO + standards layer)
 **Purpose:** force every code/documentation change through PLAN → CODE → TEST → DOCS → COMMIT with independent verification, auto-classification, and parallelization.
 
 KRONOS is a git pre-commit guard built on a Claude Code hook (PreToolUse). It does not trust the checkboxes in `WORKFLOW.md` — for every `[x]` stage it independently re-checks the fact (the plan file exists and is large enough, there is a git diff, the test log is non-empty, the documentation really changed, a commit hash is recorded). You cannot fake your way through.
@@ -20,6 +20,10 @@ KRONOS is configured through environment variables. See `config.example.yaml` an
 | `KRONOS_REPOS` | Extra repositories to check for a diff (submodules etc.), comma-separated | empty |
 | `KRONOS_BYPASS` | `1` to bypass the gate (recorded in the Decisions log) | unset |
 | `KRONOS_LOG_TZ_OFFSET` | Timezone offset (hours) for Decisions-log timestamps | `0` (UTC) |
+| `KRONOS_BRANCH_GATE` | `0` disables the branch-gate (block real code on a non-default branch with no workflow) | `1` (on) |
+| `KRONOS_BYPASS_WARN` | Bypass count per workflow above which the hook warns | `2` |
+| `KRONOS_TEST_PASS_MARKERS` | Comma-separated success markers for the TEST gate | `ALL CHECKS PASSED,PASSED,passed,OK` |
+| `KRONOS_TEST_FAIL_MARKERS` | Comma-separated failure markers for the TEST gate | `FAILED,Traceback (most recent call last)` |
 
 `~` and `$VAR` are supported in paths.
 
@@ -63,15 +67,31 @@ If the main project uses a submodule, `git status` in the parent will only show 
 
 ---
 
-## 3 task categories (auto-classify)
+## 5 task types (auto-classify)
 
-`/kronos-start` automatically determines the Type:
+`/kronos-start` automatically determines the Type. Besides TRIVIAL/MEDIUM/LARGE there are **MICRO** (a lightweight increment) and **OPS** (a multi-commit pipeline).
+
+### Which type when
+
+| Type | When | Stages | Gate note |
+|---|---|---|---|
+| **TRIVIAL** | 1 file, <=10 lines, not a critical path | CODE→DOCS→COMMIT (PLAN/TEST ⊘) | — |
+| **MICRO** | a quick test increment that still needs tracking | PLAN(1 line)+TEST+COMMIT | `verify_plan` drops the 50-line floor (MICRO → >=1) |
+| **MEDIUM** | 1 module, 2-3 files (default) | 5, 2 parallel | — |
+| **LARGE** | several modules / migration + UI | 5, max parallelism | — |
+| **OPS** | deploy/release/multi-step pipeline with N commits | `## OPS Checklist` (test→drift→stage→merge→deploy→smoke) | each commit closes a sub-step; passes without bypass; an `[x]` step without a trace → BLOCK |
 
 ### TRIVIAL — 3 stages (CODE → DOCS → COMMIT)
 - Conditions: diff <= 10 lines, 1 file, **not on a critical path** (auth, permissions, migrations, etc. — tunable per project)
 - Examples: typo in a comment, a small string edit, a version bump
 - **PLAN and TEST are skipped** via `/kronos-skip` with reason "TRIVIAL"
 - **0 parallel explore agents**
+
+### MICRO — lightweight increment (PLAN + TEST + COMMIT)
+- Conditions: a quick fix / test increment that needs tracking, where a 50-line plan is overkill
+- The plan is **1 line** (what + why): `verify_plan` for MICRO requires >=1 line, not 50
+- **TEST is required** (the correctness gate catches failures) — CODE/DOCS may be `/kronos-skip`ped
+- Together with the branch-gate, this closes the "empty template = no gate" gap on feature/test branches
 
 ### MEDIUM — 5 stages, 2 parallel
 - Conditions: 1 module, > 10 lines, 2-3 files
@@ -85,6 +105,77 @@ If the main project uses a submodule, `git status` in the parent will only show 
 - **5 parallel explore agents on PLAN**
 - **2-3 parallel agents on CODE** (by layer)
 - **3 parallel checks on TEST**
+
+### OPS — multi-commit pipeline (deploy / release)
+- Conditions: an ops pipeline with N intermediate commits (test→drift-audit→stage→merge→deploy→smoke)
+- Instead of "5 stages = 1 commit" — an `## OPS Checklist` of sub-steps; **each closed step = its own commit**, hash in the Activity log
+- The hook (`verify_ops`) **ALLOWS** the commit (multi-commit by design), but an `[x]` sub-step without a trace (hash / PASSED / done) → **BLOCK** (you cannot tick a step you did not do)
+- Goal: deploy/release goes **THROUGH** the gate, not via `KRONOS_BYPASS` on every commit
+
+```markdown
+## OPS Checklist
+- [x] test   → pytest 30/30 PASSED (a1b2c3d)
+- [x] drift  → orphan audit clean (e4f5061)
+- [⏳] deploy → in progress
+- [ ] smoke
+```
+
+---
+
+## New gates (correctness, branch, bypass-audit)
+
+- **Correctness TEST-gate.** `TEST[x]` now requires REAL green output: it blocks if the Test log has `N failed` / `FAILED` / `Traceback`, **or** has no success marker (`N passed` / `PASSED` / `ALL CHECKS PASSED` / `OK`). Configurable via `KRONOS_TEST_PASS_MARKERS` / `KRONOS_TEST_FAIL_MARKERS`. This catches bugs, not formatting; `/kronos-verify` prepares the artifact.
+- **Branch-gate (default-ON).** Committing real code on a NON-default branch with NO active workflow → BLOCK, with a hint to start a workflow (MICRO is fine). Disable via `KRONOS_BRANCH_GATE=0`.
+- **Bypass audit.** The hook counts `KRONOS_BYPASS` uses per workflow; above `KRONOS_BYPASS_WARN` (default 2) it warns "bypassed often → consider OPS/MICRO". `/kronos-status` shows the count.
+
+---
+
+## Standards layer — code & doc quality
+
+Two skills steer **HOW** to do the work well (the hook checks that work happened, not that it is good —
+so this is a **guidance layer, NOT a gate**):
+
+- **`/kronos-code-standards`** (before CODE, Type != TRIVIAL) — loads the **Clean Code** canon + per-
+  language style guides + your project rules, and writes a STANDARDS block that the code agents
+  (`/kronos-route §7`) receive in their instructions. Optional linter — advisory.
+- **`/kronos-doc-standards`** (before DOCS, Type != TRIVIAL) — loads the **Diataxis** canon (tutorial/
+  how-to/reference/explanation) + density + frontmatter, classifies the docs by type, and writes a DOC
+  block for the doc agents. Optional frontmatter/link checks — advisory.
+
+**Standards source:** env `KRONOS_STANDARDS_PATH` → `<project>/STANDARDS.md` → `~/.claude/STANDARDS.md`
+→ built-in defaults (no file → it does not fail, backward-compat). Copy `STANDARDS.example.md` to
+`STANDARDS.md` and edit. Keep project-specifics in your own project instructions.
+
+🔴 **Honest boundary:** "write like a veteran / no filler" is guidance (not machine-verifiable). Real
+teeth (a linter for code) are advisory in this version; a future `KRONOS_LINT_GATE` flag could route the
+linter output into the Test log → the existing correctness gate. The real gates are unchanged.
+
+---
+
+## Parallel workflows (git worktree)
+
+One slot: exactly **one `WORKFLOW.md` per working directory** (the hook reads `cwd/WORKFLOW.md`;
+`/kronos-start` STOPs if the slot is occupied). To run **several threads at once**, do not stack slots
+in one folder — give each thread its own working copy via `git worktree`:
+
+```bash
+# Thread B next to the main one, on its own branch:
+git worktree add ../proj-featureB featureB
+cd ../proj-featureB
+/kronos-start <task B>        # its own WORKFLOW.md, its own branch, an independent slot
+```
+
+- `WORKFLOW.md` is git-ignored → each worktree has **its own, independent** copy; no conflict.
+- The hook in each worktree checks **its** `WORKFLOW.md` (keyed on cwd) → threads don't interfere, and
+  the branch-gate in each one sees an active workflow and won't force a bypass.
+- Done with a thread → `git worktree remove ../proj-featureB`. The main thread is untouched.
+- This is an honest multitasking quick-win **with no engine change**. Named in-folder slots
+  (`.kronos/active/<slug>.md`) would be a larger, separate task — not done yet.
+
+> **Multi-repo (cross-repo):** a fresh repo gets its own `WORKFLOW.md` (Type=MICRO is fine) OR set
+> `KRONOS_BRANCH_GATE=0` for it. A "parent governs submodules" hierarchy is NOT supported yet. **DOCS:**
+> the gate expects changes under `VAULT_PATH` (a separate repo); docs that live inside the code repo
+> (`<repo>/docs/`) are NOT counted by the stock `verify_docs` yet.
 
 ---
 
@@ -246,6 +337,9 @@ Protection against an interrupted session (power loss, terminal closed) — `WOR
 | `/kronos-find-docs` | Routing Table + Discovery Agent → list of files for DOCS. |
 | `/kronos-sanity-check` | Pre-COMMIT check: PUBLIC code changes vs the vault. |
 | `/kronos-watchdog` | Cross-cutting stuck-task detector: probes progress of an active long stage (see Watchdog). |
+| `/kronos-verify` | Runs the test oracle + pytest, summarizes, and fills the `## Test log` with a green/red artifact for the correctness TEST-gate. |
+| `/kronos-code-standards` | **Code standards (before CODE).** Loads Clean Code + style guides + project rules, writes a STANDARDS block for the code agents (route §7). Guidance only — no block. |
+| `/kronos-doc-standards` | **Doc standards (before DOCS).** Loads Diataxis + density + frontmatter, classifies docs by type, writes a DOC block for the doc agents. Guidance only — no block. |
 
 ---
 
@@ -274,7 +368,8 @@ Then register the hook in `~/.claude/settings.json` (see README).
 - `hooks/check-workflow.{sh,py}` — the hook (matcher Bash|PowerShell)
 - `THREAT_MODEL.md` — what KRONOS does and does not defend against
 - `KRONOS-ROUTING.example.md` — template of the static code→docs map
-- `skills/kronos-*/SKILL.md` — 7 slash commands
+- `skills/kronos-*/SKILL.md` — 11 slash commands
+- `STANDARDS.example.md` — code (Clean Code) and doc (Diataxis) canons for the standards skills
 - `WORKFLOW.template.md` — the active-workflow template
 - `<project>/WORKFLOW.md` — the current active workflow
 - `<project>/plans/<slug>.md` — plans
