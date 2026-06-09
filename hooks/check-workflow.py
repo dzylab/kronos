@@ -99,6 +99,57 @@ def get_vault_path(cwd: Path) -> Optional[Path]:
     return None
 
 
+# ──────────────────── Vault-commit exemption (cross-repo fix) ────────────────────
+# A git commit whose TARGET repo is the documentation vault must NOT be gated by the
+# code workflow. The vault is the product of the DOCS stage (verify_docs already reads
+# it during DOCS), not code under the 5-stage gate. The hook keys WORKFLOW.md off the
+# tool cwd (project root); without this, `cd <vault> && git commit` of docs got blocked
+# by an unrelated active code workflow. We exempt ONLY the vault repo — every code repo
+# (project root / submodules) stays gated exactly as before.
+_CD_RE = re.compile(r"""(?:^|&&|;|\|)\s*cd\s+(?P<q>['"]?)(?P<path>[^'"&;|]+)(?P=q)""")
+_GIT_C_RE = re.compile(r"""\bgit\s+-C\s+(?P<q>['"]?)(?P<path>[^'"&;|]+)(?P=q)""")
+
+
+def _git_toplevel(d: Path) -> Optional[str]:
+    """Absolute git toplevel for dir `d`, or None (not a repo / git missing)."""
+    try:
+        r = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=str(d),
+                           capture_output=True, text=True, timeout=10)
+        return r.stdout.strip() if r.returncode == 0 else None
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        return None
+
+
+def _commit_target_dir(command: str, cwd: Path) -> Path:
+    """Directory the git command runs in: `git -C <path>` wins, else a leading
+    `cd <path>`, else the tool cwd."""
+    m = _GIT_C_RE.search(command) or _CD_RE.search(command)
+    if m:
+        p = _expand(m.group("path").strip())
+        if not p.is_absolute():
+            p = cwd / p
+        return p
+    return cwd
+
+
+def _commits_to_vault(command: str, cwd: Path) -> bool:
+    """True iff the commit's target repo IS the documentation vault repo."""
+    vault = get_vault_path(cwd)
+    if vault is None:
+        return False
+    target = _commit_target_dir(command, cwd)
+    if not target.exists():
+        return False
+    t_top = _git_toplevel(target)
+    v_top = _git_toplevel(vault)
+    if not t_top or not v_top:
+        return False
+    try:
+        return Path(t_top).resolve() == Path(v_top).resolve()
+    except OSError:
+        return False
+
+
 def _is_placeholder(value: str) -> bool:
     """True if the field value is a template sentinel, not real content.
 
@@ -597,6 +648,12 @@ def run_hook(payload: dict) -> int:
                 print(f"[kronos] Warning: failed to record BYPASS: {e}", file=sys.stderr)
         return 0
 
+    # (b2) Vault/docs commit exemption: a commit whose target repo IS the documentation
+    # vault is the DOCS-stage product, not code under the 5-stage gate. Never gate it by
+    # the code workflow (verify_docs already accounts for the vault during DOCS).
+    if _commits_to_vault(command, cwd):
+        return 0
+
     # (c) Verification
     wf = read_workflow(wf_path)
     if wf is None:
@@ -961,6 +1018,20 @@ def self_test() -> int:
         run_case("no WORKFLOW.md → passes", 0,
                  {"cwd": str(cwd), "tool_name": "Bash",
                   "tool_input": {"command": "git commit -m no-wf"}})
+
+        # 12b. Vault-targeted commit is EXEMPT even under a blocking workflow (cross-repo
+        # fix): docs go to the vault repo, which is the DOCS-stage product, not code.
+        base_wf()  # all stages open → would block a project commit
+        run_case("vault-targeted commit → exempt (not gated by code workflow)", 0,
+                 {"cwd": str(cwd), "tool_name": "Bash",
+                  "tool_input": {"command": f'cd "{vault}" && git commit -m docs'}},
+                 env_extra={"VAULT_PATH": str(vault)})
+        # control: same blocking workflow + VAULT_PATH set, but a PROJECT commit (no cd
+        # into vault) is still gated — exemption must NOT leak to code repos.
+        run_case("project commit still gated under same workflow (exemption precise)", 2,
+                 {"cwd": str(cwd), "tool_name": "Bash",
+                  "tool_input": {"command": "git commit -m proj"}},
+                 env_extra={"VAULT_PATH": str(vault)})
 
         # ── WATCHDOG heartbeat self-tests (direct helper call; non-empty list = BLOCKS commit) ──
         def assert_block(name: str, wf_text: str, expect_block: bool) -> None:

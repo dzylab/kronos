@@ -1,6 +1,6 @@
 # KRONOS Workflow Engine
 
-**Version:** 1.1.0 (public, 5 stages + OPS/MICRO + standards layer)
+**Version:** 1.2.0 (public, 5 stages + OPS/MICRO + standards layer + vault-commit exemption + lifecycle hygiene)
 **Purpose:** force every code/documentation change through PLAN → CODE → TEST → DOCS → COMMIT with independent verification, auto-classification, and parallelization.
 
 KRONOS is a git pre-commit guard built on a Claude Code hook (PreToolUse). It does not trust the checkboxes in `WORKFLOW.md` — for every `[x]` stage it independently re-checks the fact (the plan file exists and is large enough, there is a git diff, the test log is non-empty, the documentation really changed, a commit hash is recorded). You cannot fake your way through.
@@ -127,6 +127,13 @@ If the main project uses a submodule, `git status` in the parent will only show 
 - **Correctness TEST-gate.** `TEST[x]` now requires REAL green output: it blocks if the Test log has `N failed` / `FAILED` / `Traceback`, **or** has no success marker (`N passed` / `PASSED` / `ALL CHECKS PASSED` / `OK`). Configurable via `KRONOS_TEST_PASS_MARKERS` / `KRONOS_TEST_FAIL_MARKERS`. This catches bugs, not formatting; `/kronos-verify` prepares the artifact.
 - **Branch-gate (default-ON).** Committing real code on a NON-default branch with NO active workflow → BLOCK, with a hint to start a workflow (MICRO is fine). Disable via `KRONOS_BRANCH_GATE=0`.
 - **Bypass audit.** The hook counts `KRONOS_BYPASS` uses per workflow; above `KRONOS_BYPASS_WARN` (default 2) it warns "bypassed often → consider OPS/MICRO". `/kronos-status` shows the count.
+- **Vault/docs-commit exemption (cross-repo).** A `git commit` whose **target repo is the documentation vault** (`VAULT_PATH`) is **never gated** by the code workflow — the vault is the DOCS-stage product, not code under the 5-stage gate. The hook resolves the commit's target git-toplevel (from a leading `cd <path>` / `git -C <path>`, else the tool cwd) and exempts it **only** when it equals the vault's git-toplevel. Every code repo (project root / submodules) stays gated exactly as before. This fixes the surprise where `cd <vault> && git commit` of docs was blocked by an unrelated active code workflow (the hook keys `WORKFLOW.md` off the tool cwd = project root).
+
+## Workflow lifecycle hygiene (skills)
+
+- **Deferred COMMIT ≠ skipped.** `[⊘]` means "never"; a merely *deferred* commit (later / waiting for approval) must leave `COMMIT [ ]` open — the hook already passes an open COMMIT right before `git commit`. `/kronos-skip` refuses a deferral-reason skip of stage 5 and explains. This stops a "closed but never committed" workflow from lingering.
+- **Terminal auto-archive.** When the *last* open stage is closed via `/kronos-skip` (not `/kronos-next`), the skill now checks "all 5 stages closed → archive immediately" (same as `/kronos-next` step 3), so a terminal workflow never hangs around gating future unrelated commits. `/kronos-status` flags a terminal-but-un-archived workflow (read-only).
+- **Scope-drift signal.** `/kronos-status` warns (does not block) when staged changes are much broader than the active workflow's declared scope — catching "a large task rode under the umbrella of a small/unrelated workflow"; suggests `Type=LARGE` or `OPS`.
 
 ---
 

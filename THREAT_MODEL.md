@@ -59,6 +59,14 @@ so an optimistic agent cannot move past a stage it only *claimed* to finish:
   agents, convergence points edited serially — see `KRONOS.md` → Smart Parallelism) is a
   **convention, not enforcement**. The hook does not detect two agents clobbering the same file;
   use `isolation: "worktree"` for genuinely shared zones.
+- **Commits to the documentation vault (intentional carve-out).** A commit whose target repo is
+  the `VAULT_PATH` vault is **not gated** — it is the DOCS-stage product, not code. The blast
+  radius is bounded: the exemption fires **only** when the commit's git-toplevel exactly equals
+  the vault's git-toplevel; every code repo (project root / submodules) is unaffected and stays
+  gated. The self-test pins this with a positive case (vault commit passes under a blocking
+  workflow) **and** a control (a project commit under the same workflow still blocks), so the
+  exemption cannot silently widen to code. It does not let an agent slip *code* past the gate —
+  only *documentation* into the vault repo, which is what DOCS already expects.
 
 ---
 

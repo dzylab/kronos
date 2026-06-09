@@ -26,6 +26,26 @@ Skips the given stage of the active workflow.
 
 Regex `^\- \[.\] <N>\. \*\*(PLAN|CODE|TEST|DOCS|COMMIT)\*\*`. If it is already `[x]` (done) → error "stage already closed". If `[⊘]` → error "stage already skipped".
 
+### 2b. Special case — the COMMIT stage (5): deferred ≠ skipped
+
+`[⊘]` means **"never"**, not **"later"**. A common mistake: the commit is only **deferred**
+(commit later, waiting for approval, not now) and gets marked `[⊘]`. That creates **drift**:
+the workflow is logically "closed" but no commit exists, and the file lingers as active,
+**gating future unrelated commits** in this and other repos.
+
+**Rule:**
+- **Commit is DEFERRED** (will happen later) → **do NOT skip**. Leave `COMMIT [ ]` open.
+  The hook **already lets an open COMMIT pass right before `git commit`** (`STAGES_OPTIONAL_BEFORE_COMMIT`)
+  — deferral needs no skip, and when you commit, `/kronos-next` closes it and **auto-archives**.
+- **Commit will NEVER happen** (experiment discarded, work goes into a different commit/repo,
+  task cancelled) → a `[⊘]` skip is **legitimate**, with an explicit reason of that kind.
+
+**If asked to `/kronos-skip 5 <deferral-reason>`** (reason looks like "for now / later / not yet /
+defer / waiting / blocked on approval") → **refuse + explain**: "That is a deferral, not a
+cancellation. Leaving COMMIT `[ ]` open — the workflow closes and archives automatically on the
+real `git commit`. If the commit truly will not happen, re-run with a cancellation reason
+(experiment discarded / goes into another commit)."
+
 ### 3. Change `[ ]` → `[⊘]` via Edit
 
 ```python
@@ -48,11 +68,23 @@ And in the Activity log:
 - 2026-01-15T18:30:00+00:00 **kronos-skip**: stage 3 TEST skipped (TRIVIAL task)
 ```
 
-### 5. Report to the user
+### 5. Terminal check — auto-archive (do NOT leave it hanging!)
+
+After marking `[⊘]`, re-read all 5 stages. **If ALL are closed** (each `[x]` or `[⊘]`, none
+`[ ]`/`[⏳]`) → the workflow is **terminal** and must be **archived immediately** (same logic as
+`/kronos-next` step 3), otherwise it lingers as active and gates future unrelated commits:
+
+- `mv WORKFLOW.md workflow-archive/<date>-<slug>.md`
+- Restore WORKFLOW.md from the template (Task = `(none)`)
+- Report: "workflow terminal (all stages closed) → archived".
+
+⚠️ If COMMIT is still `[ ]` (deferral, see 2b) — the workflow is **NOT** terminal, do **NOT** archive.
+
+### 6. Report to the user
 
 - Stage N (X) marked ⊘ skipped
 - Reason: <reason>
-- Next step: `/kronos-next` to move to the next open stage
+- If archived (step 5) → say so; otherwise next step: `/kronos-next`
 
 ## IMPORTANT — the hook accepts ⊘ as closed only with a record
 

@@ -9,7 +9,10 @@
 
 > **Every task starts with a plan. Every plan must be executed. Every completed stage must be verified.**
 
-**Version 1.1.0** — see [Releases](https://github.com/dzylab/kronos/releases) for the changelog · [What's new in v1.1 ↓](#whats-new-in-v11)
+**Version 1.2.0** — see [Releases](https://github.com/dzylab/kronos/releases) for the changelog · [What's new ↓](#whats-new-in-v12)
+
+> 🌊 **Vibe coder, or new to all this?** Skip the jargon — start with **[VIBE-CODING.md](VIBE-CODING.md)**,
+> a plain-words guide that explains what KRONOS is and gets you running in ~5 minutes.
 
 KRONOS is a lightweight workflow engine built on top of [Claude Code](https://claude.com/claude-code)
 hooks and slash-commands. It exists to solve one problem: **AI agents (and humans) mark
@@ -29,6 +32,31 @@ KRONOS makes that impossible. When you try to `git commit`, a `PreToolUse` hook 
 
 Lie about any of them and the hook returns `exit 2` — the commit is blocked with a
 clear message. You can't fake your way past it.
+
+---
+
+## What's new in v1.2
+
+v1.2 closes two real-world friction points found by running KRONOS on a large, multi-repo task.
+
+### 📂 Vault/docs commits are exempt
+A `git commit` whose target repo is the documentation vault (`VAULT_PATH`) is **never gated** by the
+code workflow — the vault is the DOCS-stage *product*, not code under the 5-stage gate. This removes a
+false-positive where committing docs got blocked by an unrelated code workflow. Code repos (project
+root / submodules) stay gated exactly as before; the exemption is bounded to the vault and locked down
+by the self-test (a project commit under the same workflow still blocks).
+
+### 🧹 Workflow lifecycle hygiene
+- **Deferred commit ≠ skip.** When a commit is merely postponed, `/kronos-skip` keeps `COMMIT` open
+  `[ ]` instead of marking it `⊘` — the hook already allows an open COMMIT right before `git commit`,
+  so a postponement no longer leaves a half-closed workflow lying around.
+- **Terminal workflows auto-archive.** When the last stage is closed (even via skip), the workflow is
+  archived instead of lingering "active" and gating later, unrelated commits.
+- **Scope-drift warning** (`/kronos-status`) — flags when a commit's staged files are far wider than the
+  active workflow's slug/affected-files ("the work outran the workflow").
+
+> **Backward-compatible & dual-shell.** Self-test grew to ~36 cases; nothing new blocks a project that
+> doesn't opt in.
 
 ---
 
@@ -204,7 +232,8 @@ $EDITOR config.yaml          # set PROJECT_PATH and VAULT_PATH
 python ~/.claude/hooks/check-workflow.py --self-test
 ```
 
-The self-test spins up throwaway git repos and runs ~34 cases (blocked commits, bypass,
+The self-test spins up throwaway git repos and runs ~36 cases (blocked commits, bypass,
+vault-commit exemption (and its precise control: a project commit under the same workflow still blocks),
 fake checkboxes, skipped-with-reason, watchdog heartbeat hard-gate — a `[x]` stage without a
 `STARTED` trace blocks the commit, PLAN-stage exemption, legacy/template-state pass,
 OPS multi-commit, MICRO 1-line plan, branch-gate, correctness TEST-gate, bypass-audit,
@@ -290,6 +319,7 @@ git worktree add ../proj-featureB featureB && cd ../proj-featureB
 ```
 kronos/
 ├── README.md                     # this file
+├── VIBE-CODING.md                # plain-words guide for vibe coders / beginners
 ├── LICENSE                       # GPL-3.0
 ├── KRONOS.md                     # full engine documentation
 ├── THREAT_MODEL.md               # what it does / doesn't defend against
