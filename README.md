@@ -9,7 +9,7 @@
 
 > **Every task starts with a plan. Every plan must be executed. Every completed stage must be verified.**
 
-**Version 1.2.0** — see [Releases](https://github.com/dzylab/kronos/releases) for the changelog · [What's new ↓](#whats-new-in-v12)
+**Version 1.2.1** — see [Releases](https://github.com/dzylab/kronos/releases) for the changelog · [What's new ↓](#whats-new-in-v12)
 
 > 🌊 **Vibe coder, or new to all this?** Skip the jargon — start with **[VIBE-CODING.md](VIBE-CODING.md)**,
 > a plain-words guide that explains what KRONOS is and gets you running in ~5 minutes.

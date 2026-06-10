@@ -1,6 +1,6 @@
 # KRONOS Workflow Engine
 
-**Version:** 1.2.0 (public, 5 stages + OPS/MICRO + standards layer + vault-commit exemption + lifecycle hygiene)
+**Version:** 1.2.1 (public, 5 stages + OPS/MICRO + standards layer + vault-commit exemption + lifecycle hygiene; 1.2.1 — Windows OSError hardening in the commit hook)
 **Purpose:** force every code/documentation change through PLAN → CODE → TEST → DOCS → COMMIT with independent verification, auto-classification, and parallelization.
 
 KRONOS is a git pre-commit guard built on a Claude Code hook (PreToolUse). It does not trust the checkboxes in `WORKFLOW.md` — for every `[x]` stage it independently re-checks the fact (the plan file exists and is large enough, there is a git diff, the test log is non-empty, the documentation really changed, a commit hash is recorded). You cannot fake your way through.

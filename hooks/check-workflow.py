@@ -180,7 +180,7 @@ def _current_branch(cwd: Path) -> str:
         r = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"],
                            cwd=cwd, capture_output=True, text=True, timeout=10)
         return r.stdout.strip() if r.returncode == 0 else ""
-    except (FileNotFoundError, subprocess.TimeoutExpired):
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
         return ""
 
 
@@ -191,7 +191,7 @@ def _is_default_branch(cwd: Path, branch: str) -> bool:
                            cwd=cwd, capture_output=True, text=True, timeout=10)
         if r.returncode == 0 and r.stdout.strip():
             return branch == r.stdout.strip().split("/", 1)[-1]
-    except (FileNotFoundError, subprocess.TimeoutExpired):
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
         pass
     return branch in ("main", "master", "")
 
@@ -202,7 +202,7 @@ def _staged_code_files(cwd: Path) -> list[str]:
         r = subprocess.run(["git", "diff", "--cached", "--name-only"],
                            cwd=cwd, capture_output=True, text=True, timeout=10)
         files = [f for f in r.stdout.splitlines() if f.strip()]
-    except (FileNotFoundError, subprocess.TimeoutExpired):
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
         return []
     return [f for f in files
             if not f.lower().endswith(_DOC_EXTS) and Path(f).name != "WORKFLOW.md"]
@@ -293,7 +293,7 @@ def _has_changes_in(repo: Path) -> Optional[bool]:
             ["git", "diff", "--quiet"],
             cwd=repo, capture_output=True, timeout=10,
         ).returncode
-    except (FileNotFoundError, subprocess.TimeoutExpired):
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
         return None
     return staged != 0 or unstaged != 0
 
@@ -409,7 +409,7 @@ def verify_docs(cwd: Path, sections: dict) -> Optional[str]:
             ["git", "status", "--porcelain"],
             cwd=vault, capture_output=True, timeout=10, text=True,
         )
-    except (FileNotFoundError, subprocess.TimeoutExpired):
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
         return None
     if result.returncode != 0:
         return None
