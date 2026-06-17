@@ -33,6 +33,24 @@ Copy this file to `STANDARDS.md` and edit. Override order: env `KRONOS_STANDARDS
 green/red (advisory). Command via `KRONOS_LINT_CMD` (env) or the line below. Empty -> the check is skipped.
 - LINT_CMD: <unset — fill in for your project, e.g. `ruff check . && eslint .`>
 
+**Design principles (apply with judgment — simplicity first).**
+- KISS / YAGNI rule the rest: write the plainest code that solves the problem NOW. A principle or
+  pattern earns its place only when it removes pain that already exists — never speculatively, never
+  to look clever.
+- SOLID quick-checks: one reason to change (S); extend by adding code, not editing tested code (O);
+  a subtype works anywhere its base does (L); many small interfaces over one fat one (I); depend on
+  abstractions, not concretes (D).
+- DRY (but copy twice before you abstract — rule of three); composition over inheritance; Law of
+  Demeter (`a.b().c().d()` is a smell); fail fast at the boundary.
+- Smells with mechanical thresholds (a linter can gate these): long method > 50 lines, long parameter
+  list > 4, large file/class > 500 lines, deep nesting > 4, cyclomatic complexity > 10, duplicate
+  blocks, dead/commented-out code, magic literals.
+- Reach for a pattern ONLY when its smell is already there: switch-on-type -> Strategy/State; many
+  optional args -> Builder; scattered object creation -> Factory; notify many -> Observer; wrap a
+  third-party API -> Adapter/Facade; behavior without a subclass explosion -> Decorator.
+- This is guidance, not a gate. The hook verifies facts; "good design" is not machine-verifiable. Only
+  the mechanical thresholds above are enforceable, and only via a linter.
+
 ---
 
 ## Doc Standards

@@ -9,7 +9,7 @@
 
 > **Every task starts with a plan. Every plan must be executed. Every completed stage must be verified.**
 
-**Version 1.2.1** — see [Releases](https://github.com/dzylab/kronos/releases) for the changelog · [What's new ↓](#whats-new-in-v12)
+**Version 1.3.0** — see [Releases](https://github.com/dzylab/kronos/releases) for the changelog · [What's new ↓](#whats-new-in-v13)
 
 > 🌊 **Vibe coder, or new to all this?** Skip the jargon — start with **[VIBE-CODING.md](VIBE-CODING.md)**,
 > a plain-words guide that explains what KRONOS is and gets you running in ~5 minutes.
@@ -32,6 +32,22 @@ KRONOS makes that impossible. When you try to `git commit`, a `PreToolUse` hook 
 
 Lie about any of them and the hook returns `exit 2` — the commit is blocked with a
 clear message. You can't fake your way past it.
+
+---
+
+## What's new in v1.3
+
+v1.3 adds a **design-principles layer** to the standards skill. Before the CODE stage,
+`/kronos-code-standards` now also reminds each code agent of the engineering principles that keep a
+change clean — applied with judgment, simplicity first:
+
+- **KISS / YAGNI first**, then SOLID; reach for a design pattern only when its smell is already there.
+- **Code smells with mechanical thresholds** (long method, long parameter list, large file, deep
+  nesting, high complexity) — the slice a linter can actually gate.
+- It stays **guidance, not a gate**: the hook still verifies facts, never "good design". See
+  [`STANDARDS.example.md`](STANDARDS.example.md) for the full digest.
+
+> **Backward-compatible.** Pure guidance — nothing new blocks a commit; the hook logic is unchanged.
 
 ---
 
@@ -85,8 +101,9 @@ multi-commit releases, quick increments, and a quality bar — without loosening
 
 ### 🎯 Standards layer — quality, not just completion
 Two **guidance** skills steer *how* the work is done, *before* it's done:
-- **`/kronos-code-standards`** (before CODE) — loads the **Clean Code** canon + per-language
-  style guides + your project rules, and hands each dispatched code agent a `STANDARDS` block.
+- **`/kronos-code-standards`** (before CODE) — loads the **Clean Code** canon + **design principles**
+  (SOLID, code smells with thresholds, patterns on demand) + per-language style guides + your project
+  rules, and hands each dispatched code agent a `STANDARDS` block.
 - **`/kronos-doc-standards`** (before DOCS) — loads the **[Diátaxis](https://diataxis.fr/)** canon
   (tutorial / how-to / reference / explanation) + density + frontmatter rules, classifies each
   target doc by type, and hands the doc agents a `DOC` block.
@@ -208,7 +225,7 @@ accepts it, but requires a matching `SKIPPED stage N` line in the Decisions log.
 | `/kronos-sanity-check` | Before COMMIT: are all public changes (endpoints, models, pages) documented? |
 | `/kronos-watchdog` | Cross-cutting stuck-task detector: probes progress of an active long-running stage (see below). |
 | `/kronos-verify` | Runs the test oracle + pytest, summarizes, and fills the `## Test log` with a green/red artifact for the correctness TEST-gate. |
-| `/kronos-code-standards` | Before CODE: loads Clean Code + style guides + project rules, writes a STANDARDS block for the code agents. Guidance only. |
+| `/kronos-code-standards` | Before CODE: loads Clean Code + design principles (SOLID, smells, patterns) + style guides + project rules, writes a STANDARDS block for the code agents. Guidance only. |
 | `/kronos-doc-standards` | Before DOCS: loads Diataxis + density + frontmatter, classifies docs by type, writes a DOC block for the doc agents. Guidance only. |
 
 ---

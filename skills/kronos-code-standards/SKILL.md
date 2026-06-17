@@ -25,6 +25,7 @@ defaults** (below). Parse the `## Code Standards` section. No file -> built-in d
 **Built-in defaults (if no STANDARDS.md):** a function = single responsibility, <=~20 lines, nesting
 <=3; descriptive names; DRY; comments explain "why"; no dead code/debug prints; fail fast; style by
 language (Python -> PEP 8 / ruff / mypy, JS/TS -> eslint / prettier); consistency beats taste.
+Design principles: KISS/YAGNI first; SOLID; reach for a pattern ONLY when its smell is already there.
 
 ### 3. Detect languages
 From the plan `plans/<slug>.md` "Affected files" section + `git diff --name-only` (staged+unstaged).
@@ -35,6 +36,9 @@ A short copy-paste block for each code agent:
 ```
 [CODE STANDARDS — apply everything below]
 Canon: Clean Code — single responsibility, <=~20 lines, descriptive names, DRY, comments say "why".
+Design: KISS/YAGNI first; SOLID; reach for a pattern only when its smell is already there
+  (switch-on-type->Strategy, many optional args->Builder, ...); smells (long method>50 / params>4 /
+  nesting>4) -> linter.
 Languages: <e.g. py -> PEP 8 / ruff, tsx -> eslint / prettier>. Stay consistent with existing code.
 Project rules (your project instructions): apply them TOO (i18n policy, "give code in full", date
   helpers, transaction/savepoint patterns, etc.).
