@@ -9,7 +9,7 @@
 
 > **Every task starts with a plan. Every plan must be executed. Every completed stage must be verified.**
 
-**Version 1.3.0** — see [Releases](https://github.com/dzylab/kronos/releases) for the changelog · [What's new ↓](#whats-new-in-v13)
+**Version 1.5.0** — see [Releases](https://github.com/dzylab/kronos/releases) for the changelog · [What's new ↓](#whats-new-in-v15)
 
 > 🌊 **Vibe coder, or new to all this?** Skip the jargon — start with **[VIBE-CODING.md](VIBE-CODING.md)**,
 > a plain-words guide that explains what KRONOS is and gets you running in ~5 minutes.
@@ -32,6 +32,40 @@ KRONOS makes that impossible. When you try to `git commit`, a `PreToolUse` hook 
 
 Lie about any of them and the hook returns `exit 2` — the commit is blocked with a
 clear message. You can't fake your way past it.
+
+---
+
+## What a disciplined repo looks like
+
+No invented metrics — a tool about *not* over-claiming shouldn't over-claim. Just the shape of the
+difference, stage by stage:
+
+| Stage | What an AI agent (or a human) typically does *without* KRONOS | With KRONOS |
+|---|---|---|
+| **PLAN** | starts coding immediately — no plan | a `plans/<slug>.md` is required and verified (>= 50 lines) |
+| **TEST** | writes "✅ tests pass" — but never ran them | the hook demands a real test log (and KRONOS CI re-runs them) |
+| **DOCS** | docs quietly go stale | a code change with no doc change is flagged |
+| **COMMIT** | a green checkmark hides a broken commit | the hash is recorded; a faked stage is blocked (`exit 2`) |
+
+> We won't claim "47% cleaner after a month" — that would be the exact over-optimism KRONOS exists to
+> stop. This is the shape of the discipline, not a metric.
+
+---
+
+## What's new in v1.5
+
+v1.5 adds an **optional** example, [`STANDARDS.web-project.example.md`](STANDARDS.web-project.example.md)
+— a copy-and-adapt template showing how a web team layers its own stack conventions (components,
+routing, state) on top of the universal canons. The core `/kronos-code-standards` skill stays
+stack-agnostic; nothing is baked in. Docs only; the hook logic is unchanged.
+
+---
+
+## What's new in v1.4
+
+v1.4 adds the **"What a disciplined repo looks like"** section above — an honest, side-by-side view of
+what an AI agent typically does *without* KRONOS (skips the plan, claims tests pass, lets docs rot)
+versus what the gate enforces. No invented metrics, just the shape. Docs only; the hook logic is unchanged.
 
 ---
 
@@ -112,6 +146,10 @@ A per-project or global **`STANDARDS.md`** (copy from `STANDARDS.example.md`) is
 source — `env → repo → global → built-in defaults`; the skills **self-skip** when it's absent
 (fully backward-compatible). This layer is **guidance only**: the hook stays artifact-based,
 because subjective quality is not machine-verifiable (see [THREAT_MODEL.md](THREAT_MODEL.md)).
+
+> Building a web app? [`STANDARDS.web-project.example.md`](STANDARDS.web-project.example.md) is an
+> **optional** copy-and-adapt template for stack conventions (components, routing, state) — the core
+> stays universal; you layer your own rules on top.
 
 > **Backward-compatible & dual-shell.** Existing workflows keep working unchanged; the self-test
 > grew from ~25 to ~34 cases; nothing new blocks a project that doesn't opt in.
