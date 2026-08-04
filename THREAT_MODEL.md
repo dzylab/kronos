@@ -33,8 +33,15 @@ so an optimistic agent cannot move past a stage it only *claimed* to finish:
 - **Skip without a reason** — a `⊘` stage is accepted only with a matching `SKIPPED stage N`
   entry in the Decisions log; otherwise it blocks.
 - **Commit without plan / test / docs / hash** — the same gate, applied at commit time.
+- **A deploy before the work is verified** — a rollout (`docker compose up`, `docker stack deploy`,
+  `kubectl apply`, shipping an image tarball, `alembic upgrade`) or a write to the live database
+  (`psql … INSERT/UPDATE/…`) **blocks (exit 2)** unless PLAN, CODE and TEST are closed — so TEST cannot
+  become a report filed *after* production already has the code.
 - **An unnoticed stall** (best-effort) — the watchdog flags a long stage whose objective probe
   has frozen, so a silently dead build/job does not masquerade as ongoing work.
+- **A silently inactive gate** — `--doctor` surfaces the worst failure mode (the hook installed but
+  reading an empty or absent `WORKFLOW.md`, so every commit passes): it reports the gate as a no-op
+  with the reason, instead of leaving you falsely protected.
 
 ---
 
@@ -44,6 +51,9 @@ so an optimistic agent cannot move past a stage it only *claimed* to finish:
   **intentional** escape hatches. Anyone who can run shell commands can set the env var, rewrite
   the checkboxes, or remove the hook. KRONOS records bypasses in the Decisions log for
   accountability, but it does not — and cannot — prevent them.
+- **A rollout the pattern list doesn't recognize.** The deploy gate matches a fixed set of rollout
+  verbs in command position; a tool it has not been taught — or a verb hidden well enough to dodge the
+  anchor — passes as `other`. It raises the bar against an honest slip, not a determined evasion.
 - **Gaming the watchdog.** Progress signals can be faked (e.g. `touch` to bump mtime). The
   watchdog mitigates this with a forgeability gradient (process exit code > file content change
   > size/mtime > advisory HEARTBEAT) and an independent observer, but it remains a *heuristic

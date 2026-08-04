@@ -9,7 +9,7 @@
 
 > **Every task starts with a plan. Every plan must be executed. Every completed stage must be verified.**
 
-**Version 1.5.0** — see [Releases](https://github.com/dzylab/kronos/releases) for the changelog · [What's new ↓](#whats-new-in-v15)
+**Version 1.8.0** — see [Releases](https://github.com/dzylab/kronos/releases) for the changelog · [What's new ↓](#whats-new-in-v18)
 
 > 🌊 **Vibe coder, or new to all this?** Skip the jargon — start with **[VIBE-CODING.md](VIBE-CODING.md)**,
 > a plain-words guide that explains what KRONOS is and gets you running in ~5 minutes.
@@ -49,6 +49,50 @@ difference, stage by stage:
 
 > We won't claim "47% cleaner after a month" — that would be the exact over-optimism KRONOS exists to
 > stop. This is the shape of the discipline, not a metric.
+
+---
+
+## What's new in v1.8
+
+- **Strictness profiles — one knob, not many.** `KRONOS_PROFILE = minimal | standard | strict` presets
+  the PLAN floor, the branch-gate, and the advisory thresholds in a single setting: `minimal` for a
+  throwaway repo, `standard` for a normal project, `strict` (the default when unset) for production.
+  Resolution is **explicit env > task Type > profile > built-in** — so an explicit knob always wins and
+  a task's Type still relaxes its own stages.
+
+> **Backward-compatible.** Unset profile = today's behavior; existing setups are unchanged. Self-test grew to **48 cases**.
+
+---
+
+## What's new in v1.7
+
+- **`--doctor` — catch a silent no-op.** `check-workflow.py --doctor` tells you in one line whether the
+  gate is actually protecting you or quietly passing everything (an empty/absent `WORKFLOW.md`, an
+  unresolved `PROJECT_PATH`/`VAULT_PATH`). Exit 0 = active, 1 = no-op — CI-assertable.
+- **Configurable deploy verbs.** `KRONOS_DEPLOY_PATTERNS` adds your own rollout commands (helm,
+  terraform, flyctl, an in-house deploy script) to the deploy gate — comma-separated regexes anchored
+  to command position; a bad regex is ignored and never breaks the gate.
+
+> **Backward-compatible.** Self-test grew to **45 cases**; both additions are opt-in / read-only.
+
+---
+
+## What's new in v1.6
+
+v1.6 teaches the gate about **deployments**, not just `git`:
+
+- **Deploy gate.** Rolling something onto production or writing to the live database — `docker compose
+  up`, `docker stack deploy`/`load`, `kubectl apply`, shipping an image tarball over `pscp`, an
+  `alembic upgrade`, or a `psql` write — now requires **PLAN, CODE and TEST closed** first. Otherwise
+  TEST could be ticked *after* production already had the code. Local builds and any read-only command
+  stay free.
+- **Command position, not mention.** The deploy verb triggers only in command position (line start,
+  after `; && || |`, or after `sudo/env/…`). `echo "docker compose up"` or a log `grep` is not a rollout.
+- **DOCS accepts the natural order.** Writing docs, committing them, *then* committing code no longer
+  reads as "no docs" — a vault commit made since the workflow started now counts, not only uncommitted changes.
+
+> **Backward-compatible.** The self-test grew to **41 cases** (from 36); nothing new blocks a project
+> that doesn't deploy.
 
 ---
 
@@ -287,7 +331,7 @@ $EDITOR config.yaml          # set PROJECT_PATH and VAULT_PATH
 python ~/.claude/hooks/check-workflow.py --self-test
 ```
 
-The self-test spins up throwaway git repos and runs ~36 cases (blocked commits, bypass,
+The self-test spins up throwaway git repos and runs ~48 cases (blocked commits, bypass,
 vault-commit exemption (and its precise control: a project commit under the same workflow still blocks),
 fake checkboxes, skipped-with-reason, watchdog heartbeat hard-gate — a `[x]` stage without a
 `STARTED` trace blocks the commit, PLAN-stage exemption, legacy/template-state pass,

@@ -56,6 +56,22 @@ SECTION_RE_FMT = r"(?ms)^##\s+{title}\s*\n(.*?)(?=^##\s+|\Z)"
 
 # Minimum line requirements
 MIN_PLAN_LINES = 50
+
+# ──────────────────── Strictness profile ────────────────────
+# One knob instead of many. KRONOS_PROFILE = minimal | standard | strict presets the gate's
+# aggressiveness. Resolution for every setting: explicit env var > Type > profile > this table.
+# Unset behaves exactly like today (strict), so existing setups are unaffected.
+PROFILE_DEFAULTS = {
+    "strict":   {"plan_min": MIN_PLAN_LINES, "branch_gate": "1", "bypass_warn": 2, "size_warn": 6},
+    "standard": {"plan_min": 20, "branch_gate": "1", "bypass_warn": 3, "size_warn": 10},
+    "minimal":  {"plan_min": 1,  "branch_gate": "0", "bypass_warn": 10 ** 9, "size_warn": 10 ** 9},
+}
+
+
+def _profile() -> dict:
+    """The active strictness preset (default = strict, i.e. today's behavior)."""
+    name = os.environ.get("KRONOS_PROFILE", "").strip().lower()
+    return PROFILE_DEFAULTS.get(name, PROFILE_DEFAULTS["strict"])
 MIN_TEST_LOG_LINES = 5
 
 
@@ -273,7 +289,11 @@ def verify_plan(cwd: Path, slug: str, task_type: str = "MEDIUM") -> Optional[str
     if not plan_file.exists():
         return f"PLAN[x] but plans/{slug}.md does not exist"
     line_count = sum(1 for _ in plan_file.open(encoding="utf-8", errors="replace"))
-    min_lines = 1 if str(task_type).upper() == "MICRO" else MIN_PLAN_LINES
+    if str(task_type).upper() == "MICRO":
+        min_lines = 1
+    else:
+        _exp = os.environ.get("KRONOS_PLAN_MIN_LINES", "").strip()
+        min_lines = int(_exp) if _exp.isdigit() else _profile()["plan_min"]
     if line_count < min_lines:
         return f"PLAN[x] but plans/{slug}.md has only {line_count} lines (need >={min_lines})"
     return None
@@ -383,10 +403,46 @@ def verify_test(sections: dict) -> Optional[str]:
     return None
 
 
-def verify_docs(cwd: Path, sections: dict) -> Optional[str]:
-    """DOCS [x] = the '## Docs updated' section lists files + git status of the docs vault shows modified.
+def _wf_started_date(text: str) -> Optional[str]:
+    """Workflow start date (YYYY-MM-DD) from the header or the Heartbeat block. None if absent."""
+    m = re.search(r"(?im)^\s*\*\*Started:\*\*\s*(\d{4}-\d{2}-\d{2})", text or "")
+    if m:
+        return m.group(1)
+    m = _REAL_STARTED_RE.search(text or "")
+    if m:
+        d = re.search(r"\d{4}-\d{2}-\d{2}", m.group(0))
+        if d:
+            return d.group(0)
+    return None
 
-    The list in the section holds relative paths to docs/vault files.
+
+def _vault_committed_since(vault: Path, since: Optional[str]) -> bool:
+    """Are there commits in the vault since the workflow started?
+
+    Doing it right — writing docs, committing them, then committing the code — leaves a CLEAN
+    `git status`. The old check read that as "no docs" and blocked, which pushed the author into
+    keeping the vault dirty until the very end (or ticking DOCS after the code commit). Counting
+    commits inside the workflow window accepts the correct order instead of punishing it.
+    """
+    if not since:
+        return False
+    try:
+        result = subprocess.run(
+            ["git", "log", f"--since={since} 00:00", "--oneline"],
+            cwd=vault, capture_output=True, timeout=10, text=True,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        return False
+    if result.returncode != 0:
+        return False
+    return bool(result.stdout.strip())
+
+
+def verify_docs(cwd: Path, sections: dict, text: str = "") -> Optional[str]:
+    """DOCS [x] = the '## Docs updated' section lists files + the vault really changed.
+
+    "Really changed" = uncommitted changes in the vault OR a commit made since the workflow
+    started. The list in the section holds relative paths to docs/vault files.
     """
     body = sections.get("Docs updated", "")
     if not body:
@@ -413,12 +469,15 @@ def verify_docs(cwd: Path, sections: dict) -> Optional[str]:
         return None
     if result.returncode != 0:
         return None
-    # If nothing is modified — there are no real doc changes
+    # Uncommitted changes — the docs are clearly there.
     modified = [ln for ln in result.stdout.splitlines() if ln.strip()]
-    if not modified:
-        # Note: docs might already be committed in a separate commit. Kept strict for now:
-        return f"DOCS[x] but the docs vault has no modified/new files (git status empty)"
-    return None
+    if modified:
+        return None
+    # Clean status is NOT proof of "no docs": they may already be committed separately —
+    # which is the correct order (docs first, code after). Accept a commit inside the window.
+    if _vault_committed_since(vault, _wf_started_date(text)):
+        return None
+    return "DOCS[x] but the docs vault has neither changes nor commits since the workflow started"
 
 
 def verify_commit(text: str, is_push: bool) -> Optional[str]:
@@ -592,8 +651,60 @@ READ_ONLY_PATTERNS = [
 ]
 
 
+# ──────────────────── Deploy gate ────────────────────
+# Rolling something onto production used to be invisible to the engine: `classify` knew only
+# git commands, everything else fell through to "other" → pass. Over one session production was
+# updated about twenty times with almost no trace in the journals.
+#
+# The bigger consequence was subtler: with no gate on the rollout, TEST could be closed AFTER
+# production already had the code — the stage became a report instead of a check. Gating the
+# deploy forces TEST closed BEFORE the rollout, which is the whole point of having stages.
+#
+# We match the ROLLOUT and writes to the live database. Local build/save and any read-only
+# inspection stay free — otherwise ordinary work becomes impossible.
+# The verb must stand in COMMAND position — at the start of the line or right after a
+# separator (; && || |) or a wrapper (sudo/env/time/nohup/xargs). Without the anchor a mere
+# MENTION of a rollout inside quotes — `echo "docker compose up"`, a grep over logs, a test
+# payload — was treated as the rollout itself: it landed in the journal and the gate would
+# have blocked it (caught on our own probe, 2026-08-04).
+_CMD_POS = r"(?:^|[\n;&|]\s*|\b(?:sudo|env|time|nohup|xargs)\s+(?:-\S+\s+)*)"
+
+DEPLOY_PATTERNS = [
+    _CMD_POS + r"docker(?:\s+compose|-compose)\s+up\b",   # docker compose up -d
+    _CMD_POS + r"docker\s+stack\s+deploy\b",
+    _CMD_POS + r"docker\s+load\b",                        # image delivered to the server
+    _CMD_POS + r"docker\s+service\s+update\b",
+    _CMD_POS + r"kubectl\s+apply\b",
+    _CMD_POS + r"pscp\b[^\n]*\.(?:tgz|tar|tar\.gz)\b",    # shipping an image tarball
+    _CMD_POS + r"alembic\s+upgrade\b",                    # schema migration
+]
+# Writes to a database via psql/docker exec — the same class of action as a rollout.
+DB_WRITE_RE = re.compile(
+    r"\bpsql\b[^\n]*\b(INSERT|UPDATE|DELETE|ALTER|DROP|TRUNCATE|CREATE)\b", re.I
+)
+
+
+def _is_deploy(command: str) -> bool:
+    for pat in DEPLOY_PATTERNS:
+        if re.search(pat, command, re.I):
+            return True
+    # User-extensible rollout verbs (helm / terraform / flyctl / ansible-playbook / …) via
+    # KRONOS_DEPLOY_PATTERNS (comma-separated regexes), each anchored to command position like
+    # the built-ins. A bad regex is ignored, so a typo in the env var can never break the gate.
+    for _extra in os.environ.get("KRONOS_DEPLOY_PATTERNS", "").split(","):
+        _extra = _extra.strip()
+        if not _extra:
+            continue
+        try:
+            if re.search(_CMD_POS + _extra, command, re.I):
+                return True
+        except re.error:
+            pass
+    return bool(DB_WRITE_RE.search(command))
+
+
 def classify(command: str) -> str:
-    """commit / push / readonly / other."""
+    """commit / push / deploy / readonly / other."""
     if re.search(r"\bgit\s+commit\b", command):
         return "commit"
     if re.search(r"\bgit\s+push\b", command):
@@ -601,12 +712,18 @@ def classify(command: str) -> str:
     for pat in READ_ONLY_PATTERNS:
         if re.search(pat, command):
             return "readonly"
+    if _is_deploy(command):
+        return "deploy"
     return "other"
 
 
 # Which stages are NOT required to be closed BEFORE git commit
 # (COMMIT may be open — we are committing right now)
 STAGES_OPTIONAL_BEFORE_COMMIT = {"COMMIT"}
+
+# Stages that must be closed BEFORE anything reaches production. DOCS and COMMIT legitimately
+# come after the rollout, so they are not required here.
+DEPLOY_REQUIRED_STAGES = {"PLAN", "CODE", "TEST"}
 
 
 def run_hook(payload: dict) -> int:
@@ -636,7 +753,8 @@ def run_hook(payload: dict) -> int:
                 # A4 bypass-audit: warn (do NOT block) when bypass is overused in this
                 # workflow — a sign the task is not covered by its Type. Suggest OPS/MICRO.
                 n = count_bypasses(wf_path.read_text(encoding="utf-8", errors="replace"))
-                warn_at = int(os.environ.get("KRONOS_BYPASS_WARN", "2"))
+                _bw = os.environ.get("KRONOS_BYPASS_WARN", "").strip()
+                warn_at = int(_bw) if _bw.isdigit() else _profile()["bypass_warn"]
                 if n > warn_at:
                     print(
                         f"⚠ [kronos] BYPASS used {n} times in this workflow (threshold {warn_at}). "
@@ -661,7 +779,8 @@ def run_hook(payload: dict) -> int:
         # workflow → BLOCK (so feature/test commits don't slip past KRONOS). Default-ON;
         # disable via KRONOS_BRANCH_GATE=0. Default branch / docs-only / push → pass.
         # (KRONOS_BYPASS=1 already returned above; bypass still works.)
-        if not is_push and os.environ.get("KRONOS_BRANCH_GATE", "1") != "0":
+        _bg = os.environ.get("KRONOS_BRANCH_GATE", "").strip() or _profile()["branch_gate"]
+        if not is_push and _bg != "0":
             branch = _current_branch(cwd)
             if branch and not _is_default_branch(cwd, branch):
                 code_files = _staged_code_files(cwd)
@@ -689,6 +808,25 @@ def run_hook(payload: dict) -> int:
             return 2
         return 0  # OPS allows this commit (multi-commit by design)
 
+    # Deploy gate: production must not receive anything that PLAN/CODE/TEST have not closed.
+    # Only these three: DOCS and COMMIT come after the rollout by nature of the work.
+    if kind == "deploy":
+        missing = [
+            s["name"] for s in wf["stages"]
+            if s["name"] in DEPLOY_REQUIRED_STAGES and not s["closed"]
+        ]
+        if missing:
+            print("🚫 KRONOS hook blocked the rollout:\n", file=sys.stderr)
+            print(f"  • Production is about to receive stages that are not closed: {', '.join(missing)}", file=sys.stderr)
+            print("    TEST is closed BEFORE the rollout; otherwise it degrades into", file=sys.stderr)
+            print("    a report written after the fact — production is already updated.", file=sys.stderr)
+            print(f"\nWORKFLOW.md: {wf_path}", file=sys.stderr)
+            print("  • /kronos-next            — close the next stage", file=sys.stderr)
+            print("  • /kronos-skip <N> <reason> — skip deliberately", file=sys.stderr)
+            print("  • KRONOS_BYPASS=1 <command>  — one-off bypass (recorded in the Decisions log)", file=sys.stderr)
+            return 2
+        return 0
+
     errors: list[str] = []
     for stage in wf["stages"]:
         name = stage["name"]
@@ -706,7 +844,7 @@ def run_hook(payload: dict) -> int:
             elif name == "TEST":
                 err = verify_test(wf["sections"])
             elif name == "DOCS":
-                err = verify_docs(cwd, wf["sections"])
+                err = verify_docs(cwd, wf["sections"], wf["text"])
             elif name == "COMMIT":
                 err = verify_commit(wf["text"], is_push)
             else:
@@ -753,7 +891,41 @@ def run_hook(payload: dict) -> int:
         print(f"  • KRONOS_BYPASS=1 <command> — bypass (recorded in the Decisions log)", file=sys.stderr)
         return 2
 
+    # Size warning (never blocks). A workflow that swallowed several unrelated topics still
+    # shows a tidy 5/5 — the engine looks at stages, not at meaning. Precedent: one workflow
+    # about suppliers also carried techcard costs, catalog pack sizes and a recipe fix.
+    if kind == "commit":
+        try:
+            n = _commits_since_start(cwd, _wf_started_date(wf["text"]))
+            _sw = os.environ.get("KRONOS_SIZE_WARN", "").strip()
+            limit = int(_sw) if _sw.isdigit() else _profile()["size_warn"]
+            if n > limit:
+                print(
+                    f"[kronos] this workflow already has {n} commits (threshold {limit}). "
+                    f"Looks like several unrelated tasks share one workflow — close the current one "
+                    f"and open a separate one. Threshold: KRONOS_SIZE_WARN.",
+                    file=sys.stderr,
+                )
+        except Exception:
+            pass  # a warning is not worth breaking the commit over
+
     return 0
+
+
+def _commits_since_start(cwd: Path, since: Optional[str]) -> int:
+    """How many commits the current workflow has produced (project repo, since its start date)."""
+    if not since:
+        return 0
+    try:
+        result = subprocess.run(
+            ["git", "log", f"--since={since} 00:00", "--oneline"],
+            cwd=cwd, capture_output=True, timeout=10, text=True,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        return 0
+    if result.returncode != 0:
+        return 0
+    return len([ln for ln in result.stdout.splitlines() if ln.strip()])
 
 
 # ──────────────────── Self-test ────────────────────
@@ -789,7 +961,7 @@ def self_test() -> int:
         global verify_docs
         original_verify_docs = verify_docs
 
-        def patched_verify_docs(cwd_arg: Path, sections: dict) -> Optional[str]:
+        def patched_verify_docs(cwd_arg: Path, sections: dict, text: str = "") -> Optional[str]:
             # like the original, but with an explicit vault path
             body = sections.get("Docs updated", "")
             if not body:
@@ -806,9 +978,12 @@ def self_test() -> int:
             except Exception:
                 return None
             modified = [ln for ln in result.stdout.splitlines() if ln.strip()]
-            if not modified:
-                return f"DOCS[x] but the docs vault has no modified/new files"
-            return None
+            if modified:
+                return None
+            # Same relaxation as the real verifier: docs committed inside the window count.
+            if _vault_committed_since(vault, _wf_started_date(text)):
+                return None
+            return "DOCS[x] but the docs vault has neither changes nor commits since the workflow started"
         verify_docs = patched_verify_docs
 
         passed = 0
@@ -1310,6 +1485,92 @@ def self_test() -> int:
                  {"cwd": str(cwd), "tool_name": "Bash",
                   "tool_input": {"command": "git commit -m ops-fake"}})
 
+        # ── A5 deploy gate: production must not receive what TEST has not closed ──
+        # Without this gate the rollout was invisible to the engine, and TEST could be ticked
+        # AFTER production already had the code — the stage became a report, not a check.
+        (cwd / "plans").mkdir(exist_ok=True)
+        (cwd / "plans" / "dep-slug.md").write_text(
+            "\n".join(f"plan line {i}" for i in range(60)), encoding="utf-8")
+
+        def _dep_wf(test_mark: str) -> str:
+            return (
+                "**Task:** deploy gate\n**Started:** 2026-08-03\n**Slug:** dep-slug\n**Type:** MEDIUM\n\n"
+                "- [x] 1. **PLAN** → plans/dep-slug.md\n"
+                "- [x] 2. **CODE** → diff\n"
+                f"- [{test_mark}] 3. **TEST** → run\n"
+                "- [ ] 4. **DOCS**\n- [ ] 5. **COMMIT**\n\n"
+                "## Test log\npytest -q\n5 passed in 0.3s\nall good\nline four\nline five\n\n"
+                "## Docs updated\n## Activity log\n- STAGE CODE STARTED\n## Decisions log\n"
+            )
+
+        (cwd / "WORKFLOW.md").write_text(_dep_wf(" "), encoding="utf-8")
+        run_case("A5 deploy: TEST not closed → blocks", 2,
+                 {"cwd": str(cwd), "tool_name": "Bash",
+                  "tool_input": {"command": "docker compose up -d --build backend"}})
+        run_case("A5 deploy: read-only psql is free", 0,
+                 {"cwd": str(cwd), "tool_name": "Bash",
+                  "tool_input": {"command": 'psql -c "SELECT 1"'}})
+        run_case("A5 deploy: local build is free", 0,
+                 {"cwd": str(cwd), "tool_name": "Bash",
+                  "tool_input": {"command": "docker build -t img ."}})
+
+        (cwd / "WORKFLOW.md").write_text(_dep_wf("x"), encoding="utf-8")
+        run_case("A5 deploy: TEST closed → passes", 0,
+                 {"cwd": str(cwd), "tool_name": "Bash",
+                  "tool_input": {"command": "docker compose up -d --build backend"}})
+        run_case("A5 deploy: DB write gated like a rollout", 0,
+                 {"cwd": str(cwd), "tool_name": "Bash",
+                  "tool_input": {"command": 'psql -c "UPDATE t SET x=1"'}})
+
+        # ── Doctor self-diagnostic (direct call with explicit path — no env reliance) ──
+        (cwd / "WORKFLOW.md").write_text("", encoding="utf-8")
+        _rc = doctor(cwd)
+        if _rc == 1:
+            print("  [OK]   PASS: doctor flags an empty WORKFLOW.md as a no-op (exit=1)"); passed += 1
+        else:
+            print(f"  [FAIL] FAIL: doctor empty (expected=1, got={_rc})"); failed += 1
+        base_wf()
+        _rc = doctor(cwd)
+        if _rc == 0:
+            print("  [OK]   PASS: doctor reports an active workflow (exit=0)"); passed += 1
+        else:
+            print(f"  [FAIL] FAIL: doctor active (expected=0, got={_rc})"); failed += 1
+
+        # ── Configurable deploy patterns (KRONOS_DEPLOY_PATTERNS) ──
+        (cwd / "WORKFLOW.md").write_text(_dep_wf(" "), encoding="utf-8")
+        run_case("custom deploy verb (env) blocks when TEST open", 2,
+                 {"cwd": str(cwd), "tool_name": "Bash",
+                  "tool_input": {"command": "helm upgrade myrel ./chart"}},
+                 env_extra={"KRONOS_DEPLOY_PATTERNS": r"helm\s+upgrade"})
+        run_case("same verb without the env var is not a deploy", 0,
+                 {"cwd": str(cwd), "tool_name": "Bash",
+                  "tool_input": {"command": "helm upgrade myrel ./chart"}})
+
+        # ── Strictness profile (KRONOS_PROFILE) — resolution: explicit env > Type > profile > base ──
+        (cwd / "plans").mkdir(exist_ok=True)
+        (cwd / "plans" / "prof.md").write_text("\n".join(f"l{i}" for i in range(10)), encoding="utf-8")
+        _sp, _spml = os.environ.get("KRONOS_PROFILE"), os.environ.get("KRONOS_PLAN_MIN_LINES")
+        os.environ["KRONOS_PROFILE"] = "minimal"
+        if verify_plan(cwd, "prof", "MEDIUM") is None:
+            print("  [OK]   PASS: profile=minimal lowers the PLAN floor (10-line plan passes)"); passed += 1
+        else:
+            print("  [FAIL] FAIL: minimal should let a 10-line plan pass"); failed += 1
+        os.environ["KRONOS_PROFILE"] = "strict"
+        if verify_plan(cwd, "prof", "MEDIUM") is not None:
+            print("  [OK]   PASS: profile=strict keeps the 50-line floor (10-line plan blocked)"); passed += 1
+        else:
+            print("  [FAIL] FAIL: strict should block a 10-line plan"); failed += 1
+        os.environ["KRONOS_PLAN_MIN_LINES"] = "5"
+        if verify_plan(cwd, "prof", "MEDIUM") is None:
+            print("  [OK]   PASS: explicit KRONOS_PLAN_MIN_LINES overrides the profile (5 < 10)"); passed += 1
+        else:
+            print("  [FAIL] FAIL: explicit min-lines should override the profile"); failed += 1
+        for _k, _v in (("KRONOS_PROFILE", _sp), ("KRONOS_PLAN_MIN_LINES", _spml)):
+            if _v is None:
+                os.environ.pop(_k, None)
+            else:
+                os.environ[_k] = _v
+
         print(f"\n=== Self-test results: {passed} passed, {failed} failed ===")
         return 0 if failed == 0 else 1
     finally:
@@ -1320,11 +1581,51 @@ def self_test() -> int:
         shutil.rmtree(vault_dir, ignore_errors=True)
 
 
+# ──────────────────── Doctor (self-diagnostic) ────────────────────
+# `--doctor` answers one question: is the gate actually active, or a silent no-op? The worst
+# failure mode is invisible — the hook reading an empty/absent WORKFLOW.md and passing every
+# commit while looking installed. This surfaces it in one line. Read-only; never touches run_hook.
+
+def doctor(proj: Optional[Path] = None) -> int:
+    if proj is None:
+        _pp = os.environ.get("PROJECT_PATH", "").strip()
+        proj = _expand(_pp) if _pp else Path(os.getcwd())
+    problems = []
+    print("workflow-gate doctor")
+    print(f"  project: {proj}")
+    if not proj.exists():
+        problems.append(f"project path does not exist: {proj}")
+    wf = proj / "WORKFLOW.md"
+    if not wf.exists():
+        problems.append("WORKFLOW.md not found -> the gate is a NO-OP (any commit passes)")
+    else:
+        text = wf.read_text(encoding="utf-8", errors="replace")
+        wfd = read_workflow(wf)
+        if not text.strip():
+            problems.append("WORKFLOW.md is empty -> the gate is a NO-OP (any commit passes)")
+        elif wfd is None:
+            print("  workflow: no active task (template state) -> a commit is not gated")
+        else:
+            print(f"  workflow: ACTIVE -> {wfd['task'][:70]}")
+    vp = os.environ.get("VAULT_PATH", "").strip()
+    if vp and not _expand(vp).exists():
+        problems.append(f"VAULT_PATH does not resolve: {vp}")
+    if problems:
+        print("  RESULT: the gate is NOT protecting you:")
+        for p in problems:
+            print(f"    - {p}")
+        return 1
+    print("  RESULT: gate is active")
+    return 0
+
+
 # ──────────────────── Entry ────────────────────
 
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "--self-test":
         sys.exit(self_test())
+    if len(sys.argv) > 1 and sys.argv[1] == "--doctor":
+        sys.exit(doctor())
 
     try:
         payload = json.loads(sys.stdin.read())

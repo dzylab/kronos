@@ -1,6 +1,6 @@
 # KRONOS Workflow Engine
 
-**Version:** 1.5.0 (public, 5 stages + OPS/MICRO + standards layer + vault-commit exemption + lifecycle hygiene; 1.5.0 — optional web-project STANDARDS example; 1.4.0 — "disciplined repo" README section; 1.3.0 — design-principles guidance in the standards layer; 1.2.1 — Windows OSError hardening in the commit hook)
+**Version:** 1.8.0 (public, 5 stages + OPS/MICRO + standards layer + vault-commit exemption + lifecycle hygiene; 1.8.0 — strictness profiles (`KRONOS_PROFILE` minimal/standard/strict, one knob), self-test 45→48; 1.7.0 — `--doctor` self-diagnostic (is the gate active or a silent no-op?) + configurable deploy patterns (`KRONOS_DEPLOY_PATTERNS`), self-test 41→45; 1.6.0 — deploy gate (rollout / live-DB-write commands require PLAN/CODE/TEST) + command-position anchor + docs-committed acceptance, self-test 36→41; 1.5.0 — optional web-project STANDARDS example; 1.4.0 — "disciplined repo" README section; 1.3.0 — design-principles guidance in the standards layer; 1.2.1 — Windows OSError hardening in the commit hook)
 **Purpose:** force every code/documentation change through PLAN → CODE → TEST → DOCS → COMMIT with independent verification, auto-classification, and parallelization.
 
 KRONOS is a git pre-commit guard built on a Claude Code hook (PreToolUse). It does not trust the checkboxes in `WORKFLOW.md` — for every `[x]` stage it independently re-checks the fact (the plan file exists and is large enough, there is a git diff, the test log is non-empty, the documentation really changed, a commit hash is recorded). You cannot fake your way through.
@@ -24,8 +24,27 @@ KRONOS is configured through environment variables. See `config.example.yaml` an
 | `KRONOS_BYPASS_WARN` | Bypass count per workflow above which the hook warns | `2` |
 | `KRONOS_TEST_PASS_MARKERS` | Comma-separated success markers for the TEST gate | `ALL CHECKS PASSED,PASSED,passed,OK` |
 | `KRONOS_TEST_FAIL_MARKERS` | Comma-separated failure markers for the TEST gate | `FAILED,Traceback (most recent call last)` |
+| `KRONOS_DEPLOY_PATTERNS` | Extra rollout verbs for the deploy gate (comma-separated regexes, anchored to command position) — e.g. `helm\s+upgrade,terraform\s+apply` | empty |
+| `KRONOS_PROFILE` | Strictness preset: `minimal` / `standard` / `strict` — one knob presetting the PLAN floor, branch-gate, and advisory thresholds. Unset = today's behavior (`strict`). | `strict` |
+| `KRONOS_PLAN_MIN_LINES` | Explicit PLAN line floor — overrides the profile | (from profile) |
 
 `~` and `$VAR` are supported in paths.
+
+---
+
+## Strictness profiles
+
+`KRONOS_PROFILE` is **one knob instead of many** — it presets how aggressive the gate is:
+
+| Profile | For | Presets |
+|---|---|---|
+| **minimal** | a throwaway repo / quick experiment | PLAN floor 1 line, branch-gate off, advisory warnings off |
+| **standard** | a normal project (recommended for new repos) | PLAN floor 20, branch-gate on, gentler advisory thresholds |
+| **strict** | a production-critical repo (**the default**) | PLAN floor 50, branch-gate on, all advisories loud |
+
+**Resolution order for every setting:** explicit env var > task `Type` > profile > built-in. So an explicit `KRONOS_BRANCH_GATE=0` always wins; a `MICRO` task still relaxes its own stages regardless of profile; the profile only fills in what you did not set. **Unset = `strict`**, so existing setups are unaffected.
+
+What the profile tunes: the PLAN line floor (`KRONOS_PLAN_MIN_LINES` overrides it), the branch-gate, and the bypass/size advisory thresholds. **Which stages a task requires is still decided by its `Type`, not the profile.**
 
 ---
 
@@ -58,12 +77,32 @@ If the main project uses a submodule, `git status` in the parent will only show 
 | 1 | **PLAN** | `plans/<slug>.md` exists AND `wc -l >= 50` | file and line count |
 | 2 | **CODE** | `git diff` non-empty; no TS/lint errors | `git diff --cached` or `git diff` non-empty in any repo |
 | 3 | **TEST** | the `## Test log` section in `WORKFLOW.md` has >= 5 lines of real output | lines in the section |
-| 4 | **DOCS** | the `## Docs updated` section lists files + `git status VAULT_PATH` shows modified | parses the list, checks the vault diff |
+| 4 | **DOCS** | the `## Docs updated` section lists files + the vault shows a change — uncommitted **or** a commit made since the workflow started | parses the list, checks the vault diff or a since-start commit |
 | 5 | **COMMIT** | a git hash (7+ hex) in the `WORKFLOW.md` Activity log | regex search for hex |
 
 **The hook does INDEPENDENT verification** — it does NOT trust the `[x]` checkboxes, it always checks facts. A forged `[x]` without confirmation → BLOCK exit 2.
 
 **⊘ skipped** — a stage marked skipped via `/kronos-skip`. The hook accepts it as closed but requires a "SKIPPED stage X: <reason>" entry in the Decisions log.
+
+---
+
+## Deploy gate
+
+The hook classifies each command (`classify()` in `hooks/check-workflow.py`): `commit` / `push` / `deploy` / `readonly` / `other`. A **deploy** — rolling something onto production or writing to the live database — must not happen before the work is verified: **PLAN, CODE and TEST must be closed first** (DOCS and COMMIT legitimately come *after* a rollout). Without this gate, TEST can be ticked *after* users already have the code — the stage becomes a report instead of a check.
+
+**Counts as a deploy (gated):** `docker compose up` · `docker stack deploy` · `docker load` · `docker service update` · `kubectl apply` · `pscp …*.tgz|*.tar|*.tar.gz` (shipping an image tarball) · `alembic upgrade` (schema migration) · a `psql … INSERT/UPDATE/DELETE/ALTER/DROP/TRUNCATE/CREATE` (a write to the live DB).
+
+**Stays free (not gated):** local builds (`docker build`) and any read-only inspection — `git status`, container listings, log greps, a `SELECT`. Blocking those would make ordinary work impossible.
+
+**Command position, not mention.** The verb triggers the gate only in *command position* — at the start of a line, right after a separator (`; && || |`), or after a wrapper (`sudo/env/time/nohup/xargs`). A mere mention inside quotes — `echo "docker compose up"`, a `grep` over a deploy log, a test payload — is **not** treated as a rollout.
+
+**Your own rollout tools.** Add project-specific verbs (helm, terraform, flyctl, ansible, an in-house deploy script) via `KRONOS_DEPLOY_PATTERNS` — comma-separated regexes, each anchored to command position like the built-ins. A bad regex is ignored, so a typo there can never break the gate.
+
+---
+
+## Diagnostics (`--doctor`)
+
+`python hooks/check-workflow.py --doctor` answers one question: **is the gate actually active, or a silent no-op?** The worst failure is invisible — the hook installed but reading an empty or absent `WORKFLOW.md`, so every commit passes while it *looks* protected. `--doctor` prints the project path, whether a workflow is active, and a clear verdict — `gate is active`, or `the gate is NOT protecting you` with the reason (empty/missing `WORKFLOW.md`, an unresolved `PROJECT_PATH` / `VAULT_PATH`). Exit **0** when active, **1** when it is a no-op — so CI can assert it too.
 
 ---
 
